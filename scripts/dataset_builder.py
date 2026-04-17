@@ -1,27 +1,39 @@
 import json
 import random
-import math
 import csv
 import os
+from functools import lru_cache
+from urllib import request
 
-def haversine(lat1, lon1, lat2, lon2):
-    R = 6371.0
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    a = math.sin(dlat / 2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return R * c
-
-def simulate_commute_time(distance_km, mode):
+def get_osrm_profile(mode):
     if mode == 'Caminando':
-        speed = 5.0  
-    elif mode == 'Bicicleta':
-        speed = 15.0 
-    else: 
-        speed = 20.0 
-    
-    base_time = (distance_km / speed) * 60
-    return round(base_time * random.uniform(0.9, 1.2))
+        return 'walking'
+    if mode == 'Bicicleta':
+        return 'cycling'
+    return 'driving'
+
+@lru_cache(maxsize=4096)
+def get_route_metrics(lat1, lon1, lat2, lon2, mode):
+    profile = get_osrm_profile(mode)
+    url = (
+        f"http://localhost:5000/route/v1/{profile}/"
+        f"{lon1},{lat1};{lon2},{lat2}?overview=false&steps=false"
+    )
+
+    try:
+        with request.urlopen(url, timeout=10) as response:
+            payload = json.loads(response.read().decode('utf-8'))
+
+        routes = payload.get('routes') or []
+        if routes:
+            route = routes[0]
+            distance_km = round(route.get('distance', 0) / 1000, 2)
+            duration_min = round(route.get('duration', 0) / 60)
+            return distance_km, duration_min, 'osrm'
+    except (TimeoutError, ValueError, KeyError, TypeError) as exc:
+        raise RuntimeError('OSRM no respondió o devolvió una respuesta inválida') from exc
+
+    raise RuntimeError('OSRM no devolvió rutas para las coordenadas dadas')
 
 def build_dataset(viviendas_path, usuarios_path, output_csv_path):
     print(f"Cargando viviendas desde {viviendas_path}...")
@@ -34,7 +46,7 @@ def build_dataset(viviendas_path, usuarios_path, output_csv_path):
     
     viviendas_limpias = []
     for v in viviendas:
-        if v.get('property_type') in ['Departamento', 'Casa'] and v.get('price') is not None:
+        if v.get('property_type') in ['Departamento', 'Casa','Proyecto'] and v.get('price') is not None:
             price = float(v['price'])
             if 0 < price < 10000:
                 viviendas_limpias.append(v)
@@ -47,17 +59,21 @@ def build_dataset(viviendas_path, usuarios_path, output_csv_path):
             precio = float(v.get('price', 0))
             area = float(v.get('total_area_sqm') or v.get('covered_area_sqm') or 0)
             
-            dist_km = haversine(u['trabajo_lat'], u['trabajo_lon'], v['latitude'], v['longitude'])
-            dist_km = round(dist_km, 2)
-            tiempo_viaje = simulate_commute_time(dist_km, u['transporte_fav'])
+            dist_km, tiempo_viaje, route_source = get_route_metrics(
+                u['work_lat'],
+                u['work_lon'],
+                v['latitude'],
+                v['longitude'],
+                u['preferred_transport']
+            )
             
             score = 50.0
             
-            if precio > u['presupuesto']:
+            if precio > u['budget']:
                 score -= 40
             else:
-                ahorro = u['presupuesto'] - precio
-                score += (ahorro / u['presupuesto']) * 20
+                ahorro = u['budget'] - precio
+                score += (ahorro / u['budget']) * 20
                 
             if tiempo_viaje <= 15:
                 score += 30
@@ -66,7 +82,7 @@ def build_dataset(viviendas_path, usuarios_path, output_csv_path):
             else:
                 score -= 30
                 
-            if u['importa_tamano'] and area > 60:
+            if u['size_matters'] and area > 60:
                 score += 15
                 
             ruido = random.uniform(-10, 10)
@@ -78,10 +94,11 @@ def build_dataset(viviendas_path, usuarios_path, output_csv_path):
                 'vivienda_id': v['id'],
                 'precio_alquiler': precio,
                 'area_m2': area,
-                'presupuesto_usuario': u['presupuesto'],
-                'modo_transporte': u['transporte_fav'],
+                'presupuesto_usuario': u['budget'],
+                'modo_transporte': u['preferred_transport'],
                 'distancia_km_simulada': dist_km,
                 'tiempo_viaje_min': tiempo_viaje,
+                'source_ruta': route_source,
                 'afinidad_score': score
             }
             dataset.append(fila)
@@ -102,7 +119,7 @@ def build_dataset(viviendas_path, usuarios_path, output_csv_path):
 if __name__ == "__main__":
     # Las rutas asumen que ejecutas el script desde la raíz: `python scripts/dataset_builder.py`
     build_dataset(
-        viviendas_path='data/raw/viviendas_300.json', 
-        usuarios_path='data/raw/usuarios.json', 
+        viviendas_path='data/raw/housing.json', 
+        usuarios_path='data/raw/users.json', 
         output_csv_path='data/processed/dataset_entrenamiento.csv'
     )
