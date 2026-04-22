@@ -121,5 +121,5 @@ if __name__ == "__main__":
     build_dataset(
         viviendas_path='data/raw/housing.json', 
         usuarios_path='data/raw/users.json', 
-        output_csv_path='data/processed/dataset_entrenamiento.csv'
+        output_csv_path='data/processed/training_dataset.csv'
     )
