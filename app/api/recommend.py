@@ -7,6 +7,8 @@ import random
 import joblib
 import pandas as pd
 import xgboost as xgb
+import requests
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.property import Property
 from app.models.user import User
@@ -44,6 +46,32 @@ def simulate_commute_time(distance_km, mode):
     else: 
         speed = 20.0 
     return (distance_km / speed) * 60
+
+def get_osrm_route(lat1, lon1, lat2, lon2, mode):
+    profile_map = {
+        'Auto': 'driving',
+        'Bicicleta': 'cycling',
+        'Caminando': 'walking'
+    }
+    profile = profile_map.get(mode, 'driving')
+    
+    # Usamos la API Pública de OSRM (¡Sin tarjetas ni API Keys!)
+    url = f"http://router.project-osrm.org/route/v1/{profile}/{lon1},{lat1};{lon2},{lat2}?overview=false"
+    
+    # Ponemos un timeout corto (2 seg) para que si el servidor público está lento, 
+    # pase rápido al fallback matemático y el usuario no espere.
+    response = requests.get(url, timeout=2)
+    response.raise_for_status()
+    
+    data = response.json()
+    if data.get('code') != 'Ok' or not data.get('routes'):
+        raise ValueError("No route found")
+        
+    route = data['routes'][0]
+    distance_km = route['distance'] / 1000.0
+    duration_min = route['duration'] / 60.0
+    
+    return distance_km, duration_min
 # -----------------------------------------------------------------------------------------
 
 def generar_recomendacion(work_lat, work_lon, budget, mode, db):
@@ -59,8 +87,13 @@ def generar_recomendacion(work_lat, work_lon, budget, mode, db):
         if not c.price:
             continue
             
-        dist_km = haversine(work_lat, work_lon, c.latitude, c.longitude)
-        tiempo = simulate_commute_time(dist_km, mode)
+        try:
+            dist_km, tiempo = get_osrm_route(work_lat, work_lon, c.latitude, c.longitude, mode)
+        except Exception as e:
+            # Fallback a Haversine si OSRM público falla o se demora
+            print(f"Fallback to Haversine due to: {e}")
+            dist_km = haversine(work_lat, work_lon, c.latitude, c.longitude)
+            tiempo = simulate_commute_time(dist_km, mode)
         
         datos_dict.append({
             "precio_alquiler": float(c.price),
