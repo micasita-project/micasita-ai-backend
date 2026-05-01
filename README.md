@@ -83,12 +83,11 @@ python scripts/seed_db.py
 *Esto creará el usuario `admin@micasita.ai` (password: `password123`) y cargará las propiedades desde el archivo JSON (omitiéndolo de forma segura si ya existen datos).*
 
 ### 5. Iniciar la API
-Levanta el servidor local de desarrollo con recarga automática (Este comando es igual para todos los sistemas):
+Levanta el servidor local de desarrollo con recarga automática (Este comando es igual para todos los sistemas). Al usar `--host 0.0.0.0`, la API estará disponible para otros dispositivos en tu red local (muy útil si pruebas desde tu celular o un emulador):
 ```bash
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --host 0.0.0.0
 ```
-¡Listo! La API estará corriendo en `http://127.0.0.1:8000`.
-
+¡Listo! La API estará corriendo en tu máquina local (`http://127.0.0.1:8000`) y en la IP local de tu computadora para otros dispositivos.
 ---
 
 ## 📂 Arquitectura y Capas del Proyecto
