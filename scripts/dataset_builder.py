@@ -16,7 +16,7 @@ def get_osrm_profile(mode):
 def get_route_metrics(lat1, lon1, lat2, lon2, mode):
     profile = get_osrm_profile(mode)
     url = (
-        f"http://localhost:5000/route/v1/{profile}/"
+        f"http://localhost:5005/route/v1/{profile}/"
         f"{lon1},{lat1};{lon2},{lat2}?overview=false&steps=false"
     )
 
@@ -81,9 +81,6 @@ def build_dataset(viviendas_path, usuarios_path, output_csv_path):
                 score -= 10
             else:
                 score -= 30
-                
-            if u['size_matters'] and area > 60:
-                score += 15
                 
             ruido = random.uniform(-10, 10)
             score += ruido
