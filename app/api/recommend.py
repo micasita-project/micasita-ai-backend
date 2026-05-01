@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 import os
 import math
-import random
+import json
 import joblib
 import pandas as pd
 import xgboost as xgb
@@ -12,8 +12,11 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.property import Property
 from app.models.user import User
+from app.models.workplace import Workplace
+from app.models.recommendation_history import RecommendationHistory
 from app.core.security import get_current_user
-from app.schemas.recommend import RecommendationResponse, GuestRecommendRequest
+from app.schemas.recommend import RecommendationResponse, GuestRecommendRequest, RecommendationHistoryResponse
+from app.schemas.property import PropertyResponse
 
 router = APIRouter(prefix="/recommend", tags=["IA Recomendaciones"])
 
@@ -29,7 +32,7 @@ model_columns = []
 if os.path.exists(features_path):
     model_columns = joblib.load(features_path)
 
-# --- Funciones auxiliares geométricas (Podras reemplazarlas por OpenStreetMap OSRM luego) ---
+# --- Funciones auxiliares geometricas ---
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371.0
     dlat = math.radians(lat2 - lat1)
@@ -55,11 +58,9 @@ def get_osrm_route(lat1, lon1, lat2, lon2, mode):
     }
     profile = profile_map.get(mode, 'driving')
     
-    # Usamos la API Pública de OSRM (¡Sin tarjetas ni API Keys!)
+    # Usamos la API Publica de OSRM
     url = f"http://router.project-osrm.org/route/v1/{profile}/{lon1},{lat1};{lon2},{lat2}?overview=false"
     
-    # Ponemos un timeout corto (2 seg) para que si el servidor público está lento, 
-    # pase rápido al fallback matemático y el usuario no espere.
     response = requests.get(url, timeout=2)
     response.raise_for_status()
     
@@ -90,7 +91,7 @@ def generar_recomendacion(work_lat, work_lon, budget, mode, db):
         try:
             dist_km, tiempo = get_osrm_route(work_lat, work_lon, c.latitude, c.longitude, mode)
         except Exception as e:
-            # Fallback a Haversine si OSRM público falla o se demora
+            # Fallback a Haversine si OSRM publico falla o se demora
             print(f"Fallback to Haversine due to: {e}")
             dist_km = haversine(work_lat, work_lon, c.latitude, c.longitude)
             tiempo = simulate_commute_time(dist_km, mode)
@@ -113,7 +114,7 @@ def generar_recomendacion(work_lat, work_lon, budget, mode, db):
     # Aplicar el mismo One-Hot Encoding que en el entrenamiento
     df_eval = pd.get_dummies(df_eval, columns=['modo_transporte'])
     
-    # Asegurarnos de que las columnas coincidan exactamente añadiendo missing cols
+    # Asegurarnos de que las columnas coincidan exactamente
     for col in model_columns:
         if col not in df_eval.columns:
             df_eval[col] = 0
@@ -121,14 +122,14 @@ def generar_recomendacion(work_lat, work_lon, budget, mode, db):
     # Reordenar para que XGBoost no se confunda
     df_eval = df_eval[model_columns]
     
-    # Inferencia! PREDECIR!
+    # Inferencia
     predicciones = recommender.predict(df_eval)
     
     # Combinar resultados
     resultados = []
     for idx, data in enumerate(lista_casas):
         score_crudo = float(predicciones[idx])
-        score_limpio = max(0, min(100, round(score_crudo, 1))) # limitar de 0 a 100
+        score_limpio = max(0, min(100, round(score_crudo, 1)))
         
         resultados.append({
             "property": data["prop"],
@@ -136,20 +137,132 @@ def generar_recomendacion(work_lat, work_lon, budget, mode, db):
             "match_score": score_limpio
         })
         
-    # Ordenar por el que tenga mayor puntaje (El top recomendado primero)
+    # Ordenar por el que tenga mayor puntaje
     resultados = sorted(resultados, key=lambda x: x["match_score"], reverse=True)
     return resultados
 
+
+def _serialize_results(resultados):
+    """Serializa los resultados de XGBoost a JSON para guardar en la DB."""
+    serialized = []
+    for r in resultados:
+        prop = r["property"]
+        serialized.append({
+            "property": {
+                "id": prop.id,
+                "publisher_id": prop.publisher_id,
+                "title": prop.title,
+                "property_type": prop.property_type,
+                "district": prop.district,
+                "address": prop.address,
+                "latitude": prop.latitude,
+                "longitude": prop.longitude,
+                "currency": prop.currency,
+                "price": prop.price,
+                "total_area_sqm": prop.total_area_sqm,
+                "covered_area_sqm": prop.covered_area_sqm,
+                "bedrooms": prop.bedrooms,
+                "bathrooms": prop.bathrooms,
+                "parking": prop.parking,
+                "antiquity": prop.antiquity,
+                "description": prop.description,
+                "images": prop.images if prop.images else [],
+                "source_url": prop.source_url,
+            },
+            "match_score": r["match_score"],
+            "predicted_time_min": r["predicted_time_min"],
+        })
+    return serialized
+
+
+# ── Endpoints ────────────────────────────────────────────────────
+
 @router.post("/guest", response_model=List[RecommendationResponse])
 def recommend_for_guest(req: GuestRecommendRequest, db: Session = Depends(get_db)):
-    """Si no está logueado, necesita pasar los 4 datos explícitamente"""
+    """Si no esta logueado, necesita pasar los 4 datos explicitamente"""
     return generar_recomendacion(req.work_lat, req.work_lon, req.budget, req.preferred_transportation, db)
 
-from app.models.workplace import Workplace
 
+@router.post("/workplaces/{workplace_id}/generate", response_model=List[RecommendationResponse])
+def generate_recommendations(
+    workplace_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Ejecuta XGBoost y guarda el resultado en el historial. Usar con moderacion."""
+    work = db.query(Workplace).filter(Workplace.id == workplace_id, Workplace.user_id == current_user.id).first()
+    if not work:
+        raise HTTPException(status_code=404, detail="Lugar de trabajo no encontrado")
+    
+    # Ejecutar IA
+    resultados = generar_recomendacion(work.work_lat, work.work_lon, work.budget, work.preferred_transportation, db)
+    
+    # Serializar y guardar en historial (INSERT, no UPDATE)
+    serialized = _serialize_results(resultados)
+    history_entry = RecommendationHistory(
+        workplace_id=workplace_id,
+        results=json.dumps(serialized)
+    )
+    db.add(history_entry)
+    db.commit()
+    db.refresh(history_entry)
+    
+    return resultados
+
+
+@router.get("/workplaces/{workplace_id}/latest", response_model=List[RecommendationResponse])
+def get_latest_recommendations(
+    workplace_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Devuelve la ultima recomendacion cacheada SIN ejecutar IA."""
+    work = db.query(Workplace).filter(Workplace.id == workplace_id, Workplace.user_id == current_user.id).first()
+    if not work:
+        raise HTTPException(status_code=404, detail="Lugar de trabajo no encontrado")
+    
+    latest = db.query(RecommendationHistory)\
+        .filter(RecommendationHistory.workplace_id == workplace_id)\
+        .order_by(RecommendationHistory.created_at.desc())\
+        .first()
+    
+    if not latest:
+        raise HTTPException(status_code=404, detail="No hay recomendaciones guardadas. Genera una primero.")
+    
+    return json.loads(latest.results)
+
+
+@router.get("/workplaces/{workplace_id}/history")
+def get_recommendation_history(
+    workplace_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Devuelve todo el historial de recomendaciones para metricas y analisis."""
+    work = db.query(Workplace).filter(Workplace.id == workplace_id, Workplace.user_id == current_user.id).first()
+    if not work:
+        raise HTTPException(status_code=404, detail="Lugar de trabajo no encontrado")
+    
+    history = db.query(RecommendationHistory)\
+        .filter(RecommendationHistory.workplace_id == workplace_id)\
+        .order_by(RecommendationHistory.created_at.desc())\
+        .all()
+    
+    return [
+        {
+            "id": h.id,
+            "workplace_id": h.workplace_id,
+            "results": json.loads(h.results),
+            "created_at": h.created_at,
+        }
+        for h in history
+    ]
+
+
+# Mantener el endpoint viejo para compatibilidad (redirige a generate)
 @router.get("/workplaces/{workplace_id}", response_model=List[RecommendationResponse])
 def recommend_for_logged_user(workplace_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Si está logueado, ¡solo presionó un trabajo! Sacamos los datos de ese Workplace"""
+    """LEGACY: Ejecuta XGBoost directamente sin cachear. Usar /generate en su lugar."""
     work = db.query(Workplace).filter(Workplace.id == workplace_id, Workplace.user_id == current_user.id).first()
     if not work:
         raise HTTPException(status_code=404, detail="Lugar de trabajo no encontrado")

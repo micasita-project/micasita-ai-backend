@@ -42,3 +42,21 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         data={"sub": user.email}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+from app.schemas.user import UserHomeUpdate
+
+@router.get("/me", response_model=UserResponse)
+def get_me(current_user: User = Depends(get_current_user)):
+    """Obtiene el perfil del usuario logueado"""
+    return current_user
+
+@router.put("/me/home", response_model=UserResponse)
+def update_user_home(home_data: UserHomeUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Actualiza la ubicación de la casa actual del usuario"""
+    current_user.home_lat = home_data.home_lat
+    current_user.home_lon = home_data.home_lon
+    current_user.home_address = home_data.home_address
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+

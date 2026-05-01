@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, Float
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -9,5 +9,10 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     role = Column(String, default="user") # 'admin' o 'user'
+    
+    # Ubicación de casa actual (se completa en el onboarding)
+    home_lat = Column(Float, nullable=True)
+    home_lon = Column(Float, nullable=True)
+    home_address = Column(String, nullable=True)
     
     workplaces = relationship("Workplace", back_populates="owner", cascade="all, delete-orphan")

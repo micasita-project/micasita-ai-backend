@@ -11,11 +11,20 @@ class UserResponse(BaseModel):
     id: int
     email: EmailStr
     role: str
+    home_lat: Optional[float] = None
+    home_lon: Optional[float] = None
+    home_address: Optional[str] = None
 
     class Config:
         from_attributes = True
 
-# 3. JWT Token
+# 3. Actualizar Casa
+class UserHomeUpdate(BaseModel):
+    home_lat: float
+    home_lon: float
+    home_address: str
+
+# 4. JWT Token
 class Token(BaseModel):
     access_token: str
     token_type: str

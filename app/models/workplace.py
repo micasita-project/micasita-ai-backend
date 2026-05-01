@@ -15,3 +15,5 @@ class Workplace(Base):
     preferred_transportation = Column(String, nullable=False) # 'Auto', 'Bicicleta', 'Caminando'
     
     owner = relationship("User", back_populates="workplaces")
+    recommendation_history = relationship("RecommendationHistory", back_populates="workplace", cascade="all, delete-orphan")
+
