@@ -10,6 +10,9 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     role = Column(String, default="user") # 'admin' o 'user'
     
+    name = Column(String(100), nullable=True)
+    last_name = Column(String(100), nullable=True)
+    
     # Ubicación de casa actual (se completa en el onboarding)
     home_lat = Column(Float, nullable=True)
     home_lon = Column(Float, nullable=True)

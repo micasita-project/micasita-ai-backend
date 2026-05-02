@@ -5,12 +5,16 @@ from typing import Optional
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
+    name: Optional[str] = None
+    last_name: Optional[str] = None
 
 # 2. Respuesta que devuelve la API (Ocultando la contraseña)
 class UserResponse(BaseModel):
     id: int
     email: EmailStr
     role: str
+    name: Optional[str] = None
+    last_name: Optional[str] = None
     home_lat: Optional[float] = None
     home_lon: Optional[float] = None
     home_address: Optional[str] = None
