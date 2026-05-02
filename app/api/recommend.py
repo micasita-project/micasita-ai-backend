@@ -13,6 +13,7 @@ from app.core.database import get_db
 from app.models.property import Property
 from app.models.user import User
 from app.models.workplace import Workplace
+from app.models.recommendation_preference import RecommendationPreference
 from app.models.recommendation_history import RecommendationHistory
 from app.core.security import get_current_user
 from app.schemas.recommend import RecommendationResponse, GuestRecommendRequest, RecommendationHistoryResponse
@@ -247,11 +248,18 @@ def generate_recommendations(
     work = db.query(Workplace).filter(Workplace.id == workplace_id, Workplace.user_id == current_user.id).first()
     if not work:
         raise HTTPException(status_code=404, detail="Lugar de trabajo no encontrado")
+        
+    pref = db.query(RecommendationPreference).filter(RecommendationPreference.workplace_id == workplace_id).first()
+    if not pref:
+        raise HTTPException(status_code=400, detail="Faltan preferencias de recomendación para este lugar de trabajo")
     
+    # Usar max_distance_km de las preferencias si no se envia por query
+    dist = max_distance_km if max_distance_km != 10.0 else pref.max_distance_km
+
     # Ejecutar IA
     resultados = generar_recomendacion(
-        work.work_lat, work.work_lon, work.budget, work.preferred_transportation, db,
-        max_distance_km=max_distance_km,
+        work.work_lat, work.work_lon, pref.budget, pref.preferred_transportation, db,
+        max_distance_km=dist,
         limit=limit,
         user_home_lat=current_user.home_lat,
         user_home_lon=current_user.home_lon
@@ -327,11 +335,15 @@ def recommend_for_logged_user(workplace_id: int, current_user: User = Depends(ge
     if not work:
         raise HTTPException(status_code=404, detail="Lugar de trabajo no encontrado")
         
+    pref = db.query(RecommendationPreference).filter(RecommendationPreference.workplace_id == workplace_id).first()
+    if not pref:
+        raise HTTPException(status_code=400, detail="Faltan preferencias de recomendación para este lugar de trabajo")
+        
     return generar_recomendacion(
         work.work_lat, 
         work.work_lon, 
-        work.budget, 
-        work.preferred_transportation, 
+        pref.budget, 
+        pref.preferred_transportation, 
         db,
         user_home_lat=current_user.home_lat,
         user_home_lon=current_user.home_lon

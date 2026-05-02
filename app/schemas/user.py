@@ -22,7 +22,12 @@ class UserResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# 3. Actualizar Casa
+# 3. Actualizar Perfil General
+class UserProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    last_name: Optional[str] = None
+
+# 4. Actualizar Casa
 class UserHomeUpdate(BaseModel):
     home_lat: float
     home_lon: float

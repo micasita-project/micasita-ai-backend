@@ -1,14 +1,17 @@
 from pydantic import BaseModel
 
 class WorkplaceBase(BaseModel):
-    alias: str
+    work_address: str
     work_lat: float
     work_lon: float
-    budget: float
-    preferred_transportation: str
 
 class WorkplaceCreate(WorkplaceBase):
     pass
+
+class WorkplaceUpdate(BaseModel):
+    work_address: str | None = None
+    work_lat: float | None = None
+    work_lon: float | None = None
 
 class WorkplaceResponse(WorkplaceBase):
     id: int

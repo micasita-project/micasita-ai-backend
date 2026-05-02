@@ -4,7 +4,7 @@ from typing import List
 from app.core.database import get_db
 from app.models.workplace import Workplace
 from app.models.user import User
-from app.schemas.workplace import WorkplaceCreate, WorkplaceResponse
+from app.schemas.workplace import WorkplaceCreate, WorkplaceResponse, WorkplaceUpdate
 from app.core.security import get_current_user
 
 router = APIRouter(prefix="/workplaces", tags=["Trabajos (Workplaces)"])
@@ -22,6 +22,21 @@ def create_workplace(work_data: WorkplaceCreate, current_user: User = Depends(ge
 def get_workplaces(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Devuelve la lista de todos los trabajos guardados por el usuario logueado"""
     return db.query(Workplace).filter(Workplace.user_id == current_user.id).all()
+
+@router.patch("/{workplace_id}", response_model=WorkplaceResponse)
+def update_workplace(workplace_id: int, work_data: WorkplaceUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Actualizar datos del lugar de trabajo"""
+    work = db.query(Workplace).filter(Workplace.id == workplace_id, Workplace.user_id == current_user.id).first()
+    if not work:
+        raise HTTPException(status_code=404, detail="Trabajo no encontrado")
+        
+    update_data = work_data.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(work, key, value)
+        
+    db.commit()
+    db.refresh(work)
+    return work
 
 @router.delete("/{workplace_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_workplace(workplace_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):

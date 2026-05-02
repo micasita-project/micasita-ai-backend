@@ -47,13 +47,24 @@ def seed_database():
         print("Creando lugar de trabajo asociado...")
         workplace = Workplace(
             user_id=default_user.id,
-            alias="Oficina Central",
+            work_address="Oficina Central",
             work_lat=-12.0931, # San Isidro
-            work_lon=-77.0465,
-            budget=1500.0,
-            preferred_transportation="Auto"
+            work_lon=-77.0465
         )
         db.add(workplace)
+        db.commit()
+        db.refresh(workplace)
+        
+        # 3.1 Crear preferencias de recomendacion para el workplace
+        from app.models.recommendation_preference import RecommendationPreference
+        pref = RecommendationPreference(
+            user_id=default_user.id,
+            workplace_id=workplace.id,
+            budget=1500.0,
+            preferred_transportation="Auto",
+            max_distance_km=10.0
+        )
+        db.add(pref)
         db.commit()
         
         # 4. Cargar el JSON e insertar las propiedades en lotes

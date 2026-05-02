@@ -45,11 +45,23 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-from app.schemas.user import UserHomeUpdate
+from app.schemas.user import UserHomeUpdate, UserProfileUpdate
 
 @router.get("/me", response_model=UserResponse)
 def get_me(current_user: User = Depends(get_current_user)):
     """Obtiene el perfil del usuario logueado"""
+    return current_user
+
+@router.patch("/me", response_model=UserResponse)
+def update_profile(profile_data: UserProfileUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Actualiza los datos básicos del usuario"""
+    if profile_data.name is not None:
+        current_user.name = profile_data.name
+    if profile_data.last_name is not None:
+        current_user.last_name = profile_data.last_name
+        
+    db.commit()
+    db.refresh(current_user)
     return current_user
 
 @router.put("/me/home", response_model=UserResponse)

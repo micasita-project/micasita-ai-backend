@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from app.core.database import Base, engine
-from app.api import auth, properties, recommend, workplaces, geocode
+from app.api import auth, properties, recommend, workplaces, geocode, recommendation_preferences
 
 # Importar todos los modelos para que SQLAlchemy los registre
-from app.models import user, property, workplace, recommendation_history
+from app.models import user, property, workplace, recommendation_history, recommendation_preference
 
 # Creamos las tablas de la base de datos automaticamente si no existen
 print("Sincronizando Base de Datos PostgreSQL...")
@@ -20,6 +20,7 @@ app.include_router(auth.router)
 app.include_router(properties.router)
 app.include_router(recommend.router)
 app.include_router(workplaces.router)
+app.include_router(recommendation_preferences.router)
 app.include_router(geocode.router)
 
 @app.get("/")
