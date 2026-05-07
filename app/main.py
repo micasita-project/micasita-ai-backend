@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from app.core.database import Base, engine
-from app.api import auth, properties, recommend, workplaces, geocode, recommendation_preferences
+from app.api import auth, properties, recommend, workplaces, geocode, recommendation_preferences, admin
 
 # Importar todos los modelos para que SQLAlchemy los registre
 from app.models import user, property, workplace, recommendation_history, recommendation_preference
@@ -22,6 +22,7 @@ app.include_router(recommend.router)
 app.include_router(workplaces.router)
 app.include_router(recommendation_preferences.router)
 app.include_router(geocode.router)
+app.include_router(admin.router)
 
 @app.get("/")
 def read_root():

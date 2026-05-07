@@ -31,3 +31,9 @@ class Property(Base):
     # ARRAY es nativo de PostgreSQL, brillante para guardar listas de URLs de Cloudinary
     images = Column(ARRAY(String), default=[]) 
     source_url = Column(String, nullable=True)
+    
+    # Moderación
+    status = Column(String, default="pending") # 'pending', 'approved', 'rejected'
+
+    # Amenidades y características extra
+    features = Column(ARRAY(String), default=[])

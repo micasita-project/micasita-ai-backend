@@ -6,7 +6,7 @@ import cloudinary.uploader
 from app.core.database import get_db
 from app.models.property import Property
 from app.models.user import User
-from app.schemas.property import PropertyCreate, PropertyResponse, ImageUploadResponse
+from app.schemas.property import PropertyCreate, PropertyUpdate, PropertyResponse, ImageUploadResponse
 from app.core.security import get_current_user
 from app.core.config import settings
 
@@ -32,17 +32,43 @@ def upload_image(file: UploadFile = File(...), current_user: User = Depends(get_
 
 @router.post("/", response_model=PropertyResponse)
 def create_property(property_data: PropertyCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Solo usuarios registrados publican casas"""
-    new_property = Property(**property_data.model_dump(), publisher_id=current_user.id)
+    """Solo usuarios registrados publican casas. Por defecto quedan 'en revisión'."""
+    new_property = Property(
+        **property_data.model_dump(), 
+        publisher_id=current_user.id,
+        status="pending" # Aseguramos que inicie en revisión
+    )
     db.add(new_property)
     db.commit()
     db.refresh(new_property)
     return new_property
 
+@router.patch("/{property_id}", response_model=PropertyResponse)
+def update_property(property_id: int, property_data: PropertyUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Edita una propiedad. Si el usuario no es admin, la propiedad vuelve a 'en revisión'."""
+    prop = db.query(Property).filter(Property.id == property_id).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Vivienda no encontrada")
+    
+    if prop.publisher_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="No tienes permisos para editar esta propiedad")
+
+    update_data = property_data.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(prop, key, value)
+    
+    # Si el usuario NO es admin, forzamos que vuelva a revisión
+    if current_user.role != "admin":
+        prop.status = "pending"
+        
+    db.commit()
+    db.refresh(prop)
+    return prop
+
 @router.get("/", response_model=List[PropertyResponse])
 def get_all_properties(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """Público para cualquier visitante. Endpoint útil para el feed principal de Micasita."""
-    casas = db.query(Property).offset(skip).limit(limit).all()
+    """Público para cualquier visitante. Solo muestra casas aprobadas."""
+    casas = db.query(Property).filter(Property.status == "approved").offset(skip).limit(limit).all()
     return casas
 
 @router.delete("/{property_id}", status_code=status.HTTP_204_NO_CONTENT)

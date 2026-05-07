@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Query
-from typing import List
+from typing import List, Optional
 import requests
 from pydantic import BaseModel
 
@@ -13,6 +13,7 @@ class GeocodeSuggestion(BaseModel):
     latitude: float
     longitude: float
     place_type: str         # "road", "building", "amenity", etc.
+    district: Optional[str] = None
 
 
 @router.get("/search", response_model=List[GeocodeSuggestion])
@@ -54,11 +55,16 @@ def search_address(
     
     suggestions = []
     for item in data:
+        address = item.get("address", {})
+        # En Lima, el distrito suele venir en 'suburb' o 'city_district'
+        district = address.get("suburb") or address.get("city_district") or address.get("town")
+        
         suggestions.append(GeocodeSuggestion(
             display_name=item.get("display_name", ""),
             latitude=float(item.get("lat", 0)),
             longitude=float(item.get("lon", 0)),
             place_type=item.get("type", "unknown"),
+            district=district
         ))
     
     return suggestions
@@ -72,6 +78,7 @@ def reverse_address(lat: float, lon: float):
         "lat": lat,
         "lon": lon,
         "format": "json",
+        "addressdetails": 1,
     }
     headers = {
         "User-Agent": "MiCasitaApp/1.0 (micasita.pe; contacto@micasita.pe)"
@@ -85,11 +92,15 @@ def reverse_address(lat: float, lon: float):
         )
         response.raise_for_status()
         data = response.json()
+        address = data.get("address", {})
+        district = address.get("suburb") or address.get("city_district") or address.get("town")
+
         return GeocodeSuggestion(
             display_name=data.get("display_name", "Ubicación seleccionada"),
             latitude=lat,
             longitude=lon,
             place_type=data.get("type", "unknown"),
+            district=district
         )
     except Exception as e:
         print(f"Error reverse geocoding: {e}")
@@ -98,4 +109,5 @@ def reverse_address(lat: float, lon: float):
             latitude=lat,
             longitude=lon,
             place_type="unknown",
+            district=None
         )

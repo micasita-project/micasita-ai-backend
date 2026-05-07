@@ -81,7 +81,8 @@ def generar_recomendacion(
     max_distance_km=None, limit=None,
     user_home_lat=None, user_home_lon=None
 ):
-    casas = db.query(Property).all()
+    # Solo recomendamos casas aprobadas por moderación
+    casas = db.query(Property).filter(Property.status == "approved").all()
     if not casas:
         return []
     
@@ -213,7 +214,9 @@ def _serialize_results(resultados):
                 "antiquity": prop.antiquity,
                 "description": prop.description,
                 "images": prop.images if prop.images else [],
+                "features": prop.features if prop.features else [],
                 "source_url": prop.source_url,
+                "status": prop.status
             },
             "match_score": r["match_score"],
             "predicted_time_min": r["predicted_time_min"],

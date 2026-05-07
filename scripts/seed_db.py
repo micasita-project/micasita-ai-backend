@@ -102,7 +102,8 @@ def seed_database():
                 antiquity=item.get("antiquity"),
                 description=item.get("description"),
                 images=item.get("images") or [],
-                source_url=item.get("source_url")
+                source_url=item.get("source_url"),
+                status="approved" # Las casas del seed se marcan como aprobadas automáticamente
             )
             
             batch.append(property_obj)
