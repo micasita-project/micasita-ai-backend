@@ -65,6 +65,20 @@ def update_property(property_id: int, property_data: PropertyUpdate, current_use
     db.refresh(prop)
     return prop
 
+@router.get("/mine", response_model=List[PropertyResponse])
+def get_my_properties(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Obtiene todas las propiedades creadas por el usuario autenticado (para la sección 'Mis Publicaciones')."""
+    casas = db.query(Property).filter(Property.publisher_id == current_user.id).all()
+    return casas
+
+@router.get("/{property_id}", response_model=PropertyResponse)
+def get_property(property_id: int, db: Session = Depends(get_db)):
+    """Obtiene el detalle de una propiedad por su ID."""
+    prop = db.query(Property).filter(Property.id == property_id).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Vivienda no encontrada")
+    return prop
+
 @router.get("/", response_model=List[PropertyResponse])
 def get_all_properties(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     """Público para cualquier visitante. Solo muestra casas aprobadas."""
