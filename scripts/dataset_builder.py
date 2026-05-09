@@ -6,22 +6,21 @@ from functools import lru_cache
 from urllib import request
 
 def get_osrm_profile(mode):
-    if mode == 'Caminando':
-        return 'walking'
-    if mode == 'Bicicleta':
-        return 'cycling'
-    return 'driving'
+    """Retorna el modo tal cual (ya viene en inglés desde users.json)."""
+    return mode.lower()
 
 @lru_cache(maxsize=4096)
 def get_route_metrics(lat1, lon1, lat2, lon2, mode):
     profile = get_osrm_profile(mode)
     url = (
-        f"http://localhost:5005/route/v1/{profile}/"
+        f"http://router.project-osrm.org/route/v1/{profile}/"
         f"{lon1},{lat1};{lon2},{lat2}?overview=false&steps=false"
     )
 
     try:
-        with request.urlopen(url, timeout=10) as response:
+        import time
+        time.sleep(0.05) # Pequeño delay para no saturar API publica
+        with request.urlopen(url, timeout=15) as response:
             payload = json.loads(response.read().decode('utf-8'))
 
         routes = payload.get('routes') or []
@@ -54,51 +53,80 @@ def build_dataset(viviendas_path, usuarios_path, output_csv_path):
     print(f"Viviendas filtradas aptas para alquiler: {len(viviendas_limpias)}")
     
     dataset = []
+    print(f"Calculando rutas e interacciones para {len(usuarios)} usuarios...")
+    
+    from concurrent.futures import ThreadPoolExecutor
+    
+    def process_pair(u, v):
+        precio = float(v.get('price', 0))
+        area = float(v.get('total_area_sqm') or v.get('covered_area_sqm') or 0)
+        
+        english_mode = get_osrm_profile(u['preferred_transport'])
+        
+        try:
+            dist_km, tiempo_viaje, source = get_route_metrics(
+                u['work_lat'], u['work_lon'],
+                v['latitude'], v['longitude'],
+                english_mode
+            )
+        except Exception:
+            # Fallback Haversine si falla el thread
+            source = 'haversine'
+            from math import radians, sin, cos, sqrt, atan2
+            lat1, lon1 = radians(u['work_lat']), radians(u['work_lon'])
+            lat2, lon2 = radians(v['latitude']), radians(v['longitude'])
+            dlon = lon2 - lon1
+            dlat = lat2 - lat1
+            a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
+            c = 2 * atan2(sqrt(a), sqrt(1 - a))
+            dist_km = 6371.0 * c
+            tiempo_viaje = (dist_km * 1.4 / (4.5 if 'walk' in english_mode else 12.0 if 'cycl' in english_mode else 15.0)) * 60
+
+        score = 50.0
+        if precio > u['budget']:
+            score -= 40
+        else:
+            ahorro = u['budget'] - precio
+            score += (ahorro / u['budget']) * 20
+            
+        if tiempo_viaje <= 15:
+            score += 30
+        elif 15 < tiempo_viaje <= 45:
+            score -= 10
+        else:
+            score -= 30
+            
+        score += random.uniform(-10, 10)
+        score = max(0, min(100, round(score)))
+        
+        return {
+            'vivienda_id': v['id'],
+            'precio_alquiler': precio,
+            'area_m2': area,
+            'presupuesto_usuario': u['budget'],
+            'modo_transporte': english_mode,
+            'distancia_km_simulada': dist_km,
+            'tiempo_viaje_min': tiempo_viaje,
+            'source_ruta': source,
+            'afinidad_score': score
+        }
+
+    tasks = []
     for u in usuarios:
         for v in viviendas_limpias:
-            precio = float(v.get('price', 0))
-            area = float(v.get('total_area_sqm') or v.get('covered_area_sqm') or 0)
+            tasks.append((u, v))
             
-            dist_km, tiempo_viaje, route_source = get_route_metrics(
-                u['work_lat'],
-                u['work_lon'],
-                v['latitude'],
-                v['longitude'],
-                u['preferred_transport']
-            )
-            
-            score = 50.0
-            
-            if precio > u['budget']:
-                score -= 40
-            else:
-                ahorro = u['budget'] - precio
-                score += (ahorro / u['budget']) * 20
-                
-            if tiempo_viaje <= 15:
-                score += 30
-            elif 15 < tiempo_viaje <= 45:
-                score -= 10
-            else:
-                score -= 30
-                
-            ruido = random.uniform(-10, 10)
-            score += ruido
-            
-            score = max(0, min(100, round(score)))
-            
-            fila = {
-                'vivienda_id': v['id'],
-                'precio_alquiler': precio,
-                'area_m2': area,
-                'presupuesto_usuario': u['budget'],
-                'modo_transporte': u['preferred_transport'],
-                'distancia_km_simulada': dist_km,
-                'tiempo_viaje_min': tiempo_viaje,
-                'source_ruta': route_source,
-                'afinidad_score': score
-            }
-            dataset.append(fila)
+    print(f"Total de tareas a procesar: {len(tasks)}")
+    
+    results = []
+    with ThreadPoolExecutor(max_workers=15) as executor:
+        futures = [executor.submit(process_pair, u, v) for u, v in tasks]
+        for i, future in enumerate(futures):
+            results.append(future.result())
+            if (i + 1) % 500 == 0:
+                print(f"Progreso: {i + 1}/{len(tasks)} procesados...")
+    
+    dataset = results
 
     if dataset:
         headers = dataset[0].keys()

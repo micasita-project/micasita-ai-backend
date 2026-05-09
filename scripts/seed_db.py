@@ -11,8 +11,9 @@ from app.models.user import User
 from app.models.workplace import Workplace
 from app.models.property import Property
 from app.models.recommendation_history import RecommendationHistory
+from app.models.recommendation_preference import RecommendationPreference
 
-JSON_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "raw", "housing.json")
+JSON_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "raw", "housing_updated.json")
 
 def seed_database():
     print("Iniciando proceso de seeding...")
@@ -37,7 +38,8 @@ def seed_database():
             role="admin",
             home_lat=-11.895428501274143,
             home_lon=-77.04029923406615, 
-            home_address="Hermenegildo rojas 125"
+            home_address="Hermenegildo rojas 125",
+            is_active=True
         )
         db.add(default_user)
         db.commit()
@@ -56,12 +58,11 @@ def seed_database():
         db.refresh(workplace)
         
         # 3.1 Crear preferencias de recomendacion para el workplace
-        from app.models.recommendation_preference import RecommendationPreference
         pref = RecommendationPreference(
             user_id=default_user.id,
             workplace_id=workplace.id,
             budget=1500.0,
-            preferred_transportation="Auto",
+            preferred_transportation="driving",
             max_distance_km=10.0
         )
         db.add(pref)
@@ -79,6 +80,11 @@ def seed_database():
         total_inserted = 0
         
         for item in properties_data:
+            # Filtrar casas sin precio o con precio 0
+            price = item.get("price")
+            if price is None or float(price) == 0.0:
+                continue
+                
             # Validaciones básicas por los Not Null Constraints
             total_area = item.get("total_area_sqm")
             if total_area is None:
@@ -103,7 +109,9 @@ def seed_database():
                 description=item.get("description"),
                 images=item.get("images") or [],
                 source_url=item.get("source_url"),
-                status="approved" # Las casas del seed se marcan como aprobadas automáticamente
+                features=item.get("features") or [],
+                status="approved", # Las casas del seed se marcan como aprobadas automáticamente
+                rejection_reason=None
             )
             
             batch.append(property_obj)

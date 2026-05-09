@@ -5,7 +5,7 @@
     "work_lat": -12.103865110784648,
     "work_lon": -76.96269264017872, 
     "work_location": "Av. Primavera 2390, Santiago de Surco 15023",
-    "preferred_transport": "Bicicleta",
+    "preferred_transport": "cycling",
     "size_matters": false
   },
   {
@@ -14,7 +14,7 @@
     "work_lat": -12.099100059340449,
     "work_lon": -77.01935267236775,
     "work_location": "Av. República de Panamá 3545, San Isidro 15047",
-    "preferred_transport": "Auto",
+    "preferred_transport": "driving",
     "size_matters": true
   },
   {
@@ -23,7 +23,7 @@
     "work_lat": -12.124835203408956,
     "work_lon": -77.02014401492775,
     "work_location": "Centro Empresarial Leuro, Miraflores",
-    "preferred_transport": "Caminando",
+    "preferred_transport": "walking",
     "size_matters": true
   },
   {
@@ -32,7 +32,7 @@
     "work_lat": -12.052225434498814,
     "work_lon": -77.03479090005777,
     "work_location": "Av. Nicolás de Piérola 950, Lima 15001",
-    "preferred_transport": "Bicicleta",
+    "preferred_transport": "cycling",
     "size_matters": false
   },
   {
@@ -41,7 +41,7 @@
     "work_lat": -12.110709288595265,
     "work_lon": -77.03606898904546,
     "work_location": "Av. Comandante Espinar 860, Lima 15074",
-    "preferred_transport": "Auto",
+    "preferred_transport": "driving",
     "size_matters": true
   },
   {
@@ -50,7 +50,7 @@
     "work_lat": -12.0925277346138,
     "work_lon": -77.02355944232548,
     "work_location": "Av. las Begonias 441, San Isidro 15046",
-    "preferred_transport": "Auto",
+    "preferred_transport": "driving",
     "size_matters": true
   },
   {
@@ -59,7 +59,7 @@
     "work_lat": -12.145254097769863, 
     "work_lon": -77.02169167221687,
     "work_location": "Av. Almte. Miguel Grau 629, Barranco 15063",
-    "preferred_transport": "Caminando",
+    "preferred_transport": "walking",
     "size_matters": false
   },
   {
@@ -68,7 +68,7 @@
     "work_lat": -12.085323948230807,
     "work_lon": -76.97877176597477,
     "work_location": "Av. Javier Prado Este 4200, Santiago de Surco 15023",
-    "preferred_transport": "Auto",
+    "preferred_transport": "driving",
     "size_matters": true
   },
   {
@@ -77,7 +77,7 @@
     "work_lat": -12.077757135295514, 
     "work_lon": -77.03956899653143,
     "work_location": "Hospital Nacional Edgardo Rebagliati, Jesús María",
-    "preferred_transport": "Auto",
+    "preferred_transport": "driving",
     "size_matters": false
   },
   {
@@ -86,7 +86,7 @@
     "work_lat": -12.091851449239867, 
     "work_lon": -77.05639510878201,
     "work_location": "Tomás Ramsey 930, Magdalena del Mar 15076",
-    "preferred_transport": "Bicicleta",
+    "preferred_transport": "cycling",
     "size_matters": true
   }
 ]

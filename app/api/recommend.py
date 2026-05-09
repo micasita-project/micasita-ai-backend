@@ -43,26 +43,31 @@ def haversine(lat1, lon1, lat2, lon2):
     return R * c
 
 def simulate_commute_time(distance_km, mode):
-    if mode == 'Caminando':
-        speed = 5.0  
-    elif mode == 'Bicicleta':
-        speed = 15.0 
+    """
+    Simula el tiempo de viaje cuando OSRM falla.
+    Usa un factor de 1.4 para compensar que Haversine es en línea recta.
+    """
+    routing_factor = 1.4
+    real_dist = distance_km * routing_factor
+    
+    mode_lower = mode.lower()
+    if mode_lower == 'walking' or mode_lower == 'caminando':
+        speed = 4.5 # km/h
+    elif mode_lower == 'cycling' or mode_lower == 'bicicleta':
+        speed = 12.0 # km/h
     else: 
-        speed = 20.0 
-    return (distance_km / speed) * 60
+        speed = 15.0 # km/h (Promedio real en Lima con tráfico)
+        
+    return (real_dist / speed) * 60
 
 def get_osrm_route(lat1, lon1, lat2, lon2, mode):
-    profile_map = {
-        'Auto': 'driving',
-        'Bicicleta': 'cycling',
-        'Caminando': 'walking'
-    }
-    profile = profile_map.get(mode, 'driving')
+    # Ya viene en inglés (driving, walking, cycling)
+    profile = mode.lower()
     
     # Usamos la API Publica de OSRM
     url = f"http://router.project-osrm.org/route/v1/{profile}/{lon1},{lat1};{lon2},{lat2}?overview=false"
     
-    response = requests.get(url, timeout=2)
+    response = requests.get(url, timeout=5) # Mas tiempo para API publica
     response.raise_for_status()
     
     data = response.json()
@@ -118,10 +123,13 @@ def generar_recomendacion(
     
     osrm_timeouts = 0
     
+    # Normalizar modo para XGBoost (English)
+    mode_english = mode.lower()
+    
     for straight_dist, c in casas_candidatas:
         try:
-            if osrm_timeouts >= 2:
-                # Circuit breaker: si OSRM se tardo mas de 2 segundos 2 veces, dejamos de consultarlo
+            if osrm_timeouts >= 5:
+                # Circuit breaker: umbral mas alto
                 # para que la API siga siendo rapida
                 raise Exception("OSRM Rate Limit / Timeout Circuit Breaker activo")
                 
@@ -140,7 +148,7 @@ def generar_recomendacion(
             "presupuesto_usuario": float(budget),
             "distancia_km_simulada": dist_km,
             "tiempo_viaje_min": tiempo,
-            "modo_transporte": mode
+            "modo_transporte": mode_english # Usar siempre ingles para el modelo
         })
         
         # Calcular ahorro de tiempo

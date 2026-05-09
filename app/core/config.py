@@ -11,10 +11,9 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080 # 7 días de sesión
     
-    # Cloudinary
-    CLOUDINARY_CLOUD_NAME: str = ""
-    CLOUDINARY_API_KEY: str = ""
-    CLOUDINARY_API_SECRET: str = ""
+    # Azure Blob Storage
+    AZURE_STORAGE_CONNECTION_STRING: str
+    AZURE_CONTAINER_NAME: str
 
     model_config = {
         "env_file": ".env",

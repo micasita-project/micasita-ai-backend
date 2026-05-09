@@ -34,6 +34,7 @@ class Property(Base):
     
     # Moderación
     status = Column(String, default="pending") # 'pending', 'approved', 'rejected'
+    rejection_reason = Column(String, nullable=True)
 
     # Amenidades y características extra
     features = Column(ARRAY(String), default=[])

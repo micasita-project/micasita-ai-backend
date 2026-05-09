@@ -46,15 +46,21 @@ class PropertyUpdate(BaseModel):
 
 class PropertyStatusUpdate(BaseModel):
     status: str # 'approved' or 'rejected'
+    rejection_reason: Optional[str] = None
 
 class PropertyResponse(PropertyBase):
     id: int
     publisher_id: int
     status: str
+    rejection_reason: Optional[str] = None
 
     class Config:
         from_attributes = True
 
-# Respuesta al subir una imagen a Cloudinary en solitario
+# Respuesta al subir una imagen
 class ImageUploadResponse(BaseModel):
     url: str
+
+class PaginatedPropertyResponse(BaseModel):
+    total: int
+    items: List[PropertyResponse]

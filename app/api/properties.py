@@ -1,34 +1,50 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from sqlalchemy.orm import Session
-from typing import List
-import cloudinary
-import cloudinary.uploader
+from typing import List, Optional
+import uuid
+from azure.storage.blob import BlobServiceClient
 from app.core.database import get_db
 from app.models.property import Property
 from app.models.user import User
-from app.schemas.property import PropertyCreate, PropertyUpdate, PropertyResponse, ImageUploadResponse
+from app.schemas.property import PropertyCreate, PropertyUpdate, PropertyResponse, ImageUploadResponse, PaginatedPropertyResponse
 from app.core.security import get_current_user
 from app.core.config import settings
 
 router = APIRouter(prefix="/properties", tags=["Properties (Viviendas)"])
 
-# Configuración obligatoria de Cloudinary
-cloudinary.config( 
-  cloud_name = settings.CLOUDINARY_CLOUD_NAME, 
-  api_key = settings.CLOUDINARY_API_KEY, 
-  api_secret = settings.CLOUDINARY_API_SECRET 
-)
+# Configuración inicial de Azure
+blob_service_client = None
+if settings.AZURE_STORAGE_CONNECTION_STRING:
+    blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_STORAGE_CONNECTION_STRING)
 
 @router.post("/upload_image", response_model=ImageUploadResponse)
 def upload_image(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
-    """Sube un archivo a Cloudinary y devuelve el URL web estático. Ideal para la App Móvil antes de publicar la casa."""
-    if not settings.CLOUDINARY_API_KEY:
-        raise HTTPException(status_code=500, detail="Falta configurar Cloudinary en el archivo .env")
+    """Sube un archivo a Azure Blob Storage y devuelve el URL web estático."""
+    if not blob_service_client or not settings.AZURE_CONTAINER_NAME:
+        raise HTTPException(status_code=500, detail="Falta configurar Azure en el archivo .env")
+        
     try:
-        resultado = cloudinary.uploader.upload(file.file)
-        return {"url": resultado.get("secure_url")}
+        # Generar un nombre de archivo único
+        file_extension = file.filename.split(".")[-1] if "." in file.filename else "jpg"
+        unique_filename = f"{uuid.uuid4()}.{file_extension}"
+        
+        # Obtener el cliente del contenedor y el cliente del blob
+        blob_client = blob_service_client.get_blob_client(
+            container=settings.AZURE_CONTAINER_NAME, 
+            blob=unique_filename
+        )
+        
+        # Subir el archivo
+        # Importante: Leemos el contenido de UploadFile
+        content = file.file.read()
+        blob_client.upload_blob(content, overwrite=True)
+        
+        # Construir la URL pública (asumiendo que el contenedor tiene acceso público de lectura)
+        public_url = blob_client.url
+        
+        return {"url": public_url}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error subiendo a Cloudinary: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Error subiendo a Azure: {str(e)}")
 
 @router.post("/", response_model=PropertyResponse)
 def create_property(property_data: PropertyCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -79,11 +95,38 @@ def get_property(property_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Vivienda no encontrada")
     return prop
 
-@router.get("/", response_model=List[PropertyResponse])
-def get_all_properties(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """Público para cualquier visitante. Solo muestra casas aprobadas."""
-    casas = db.query(Property).filter(Property.status == "approved").offset(skip).limit(limit).all()
-    return casas
+@router.get("/", response_model=PaginatedPropertyResponse)
+def list_properties(
+    skip: int = 0, 
+    limit: int = 10, 
+    district: Optional[str] = None,
+    bedrooms: Optional[int] = None,
+    bathrooms: Optional[int] = None,
+    parking: Optional[int] = None,
+    min_area_sqm: Optional[float] = None,
+    max_price: Optional[float] = None,
+    db: Session = Depends(get_db)
+):
+    """Lista propiedades aprobadas con paginación y filtros."""
+    query = db.query(Property).filter(Property.status == "approved")
+
+    if district:
+        query = query.filter(Property.district.ilike(f"%{district}%"))
+    if bedrooms is not None:
+        query = query.filter(Property.bedrooms >= bedrooms)
+    if bathrooms is not None:
+        query = query.filter(Property.bathrooms >= bathrooms)
+    if parking is not None:
+        query = query.filter(Property.parking >= parking)
+    if min_area_sqm is not None:
+        query = query.filter(Property.total_area_sqm >= min_area_sqm)
+    if max_price is not None:
+        query = query.filter(Property.price <= max_price)
+
+    total = query.count()
+    items = query.offset(skip).limit(limit).all()
+
+    return {"total": total, "items": items}
 
 @router.delete("/{property_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_property(property_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):

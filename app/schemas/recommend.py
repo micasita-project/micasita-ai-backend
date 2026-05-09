@@ -7,7 +7,7 @@ class GuestRecommendRequest(BaseModel):
     work_lat: float
     work_lon: float
     budget: float
-    preferred_transportation: str # 'Auto', 'Bicicleta', 'Caminando'
+    preferred_transportation: str # 'driving', 'cycling', 'walking'
     max_distance_km: Optional[float] = 10.0
     limit: Optional[int] = 20
     home_lat: Optional[float] = None

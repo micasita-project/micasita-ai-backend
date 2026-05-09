@@ -13,6 +13,7 @@ class UserResponse(BaseModel):
     id: int
     email: EmailStr
     role: str
+    is_active: bool
     name: Optional[str] = None
     last_name: Optional[str] = None
     home_lat: Optional[float] = None
@@ -21,6 +22,9 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class UserStatusUpdate(BaseModel):
+    is_active: bool
 
 # 3. Actualizar Perfil General
 class UserProfileUpdate(BaseModel):

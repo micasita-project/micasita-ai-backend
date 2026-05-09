@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float
+from sqlalchemy import Column, Integer, String, Float, Boolean
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -9,6 +9,7 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     role = Column(String, default="user") # 'admin' o 'user'
+    is_active = Column(Boolean, default=True)
     
     name = Column(String(100), nullable=True)
     last_name = Column(String(100), nullable=True)
