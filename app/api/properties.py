@@ -7,10 +7,24 @@ from app.core.database import get_db
 from app.models.property import Property
 from app.models.user import User
 from app.schemas.property import PropertyCreate, PropertyUpdate, PropertyResponse, ImageUploadResponse, PaginatedPropertyResponse
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_user_optional
 from app.core.config import settings
+from app.models.favorite import Favorite
 
 router = APIRouter(prefix="/properties", tags=["Properties (Viviendas)"])
+
+def populate_favorites(properties, user_id, db: Session):
+    if not user_id:
+        return properties
+    
+    # Obtener IDs de favoritos del usuario
+    fav_ids = set(
+        row[0] for row in db.query(Favorite.property_id).filter(Favorite.user_id == user_id).all()
+    )
+    
+    for p in properties:
+        p.is_favorite = p.id in fav_ids
+    return properties
 
 # Configuración inicial de Azure
 blob_service_client = None
@@ -99,15 +113,42 @@ def get_my_properties(db: Session = Depends(get_db), current_user: User = Depend
     """Obtiene todas las propiedades creadas por el usuario autenticado (para la sección 'Mis Publicaciones')."""
     casas = db.query(Property).filter(
         Property.publisher_id == current_user.id).all()
+    
+    # Popular favoritos
+    populate_favorites(casas, current_user.id, db)
+    
     return casas
 
 
+@router.get("/favorites", response_model=List[PropertyResponse])
+def get_my_favorites(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Obtener la lista de viviendas marcadas como favoritas por el usuario."""
+    favorites = db.query(Property).join(
+        Favorite, Favorite.property_id == Property.id
+    ).filter(
+        Favorite.user_id == current_user.id
+    ).all()
+    
+    for f in favorites:
+        f.is_favorite = True
+        
+    return favorites
+
+
 @router.get("/{property_id}", response_model=PropertyResponse)
-def get_property(property_id: int, db: Session = Depends(get_db)):
+def get_property(property_id: int, current_user: Optional[User] = Depends(get_current_user_optional), db: Session = Depends(get_db)):
     """Obtiene el detalle de una propiedad por su ID."""
     prop = db.query(Property).filter(Property.id == property_id).first()
     if not prop:
         raise HTTPException(status_code=404, detail="Vivienda no encontrada")
+    
+    if current_user:
+        is_fav = db.query(Favorite).filter(
+            Favorite.user_id == current_user.id,
+            Favorite.property_id == property_id
+        ).first() is not None
+        prop.is_favorite = is_fav
+        
     return prop
 
 
@@ -120,7 +161,9 @@ def list_properties(
     bathrooms: Optional[int] = None,
     parking: Optional[int] = None,
     min_area_sqm: Optional[float] = None,
+    min_price: Optional[float] = None,
     max_price: Optional[float] = None,
+    current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """Lista propiedades aprobadas con paginación y filtros."""
@@ -140,11 +183,16 @@ def list_properties(
         query = query.filter(Property.parking >= parking)
     if min_area_sqm is not None:
         query = query.filter(Property.total_area_sqm >= min_area_sqm)
+    if min_price is not None:
+        query = query.filter(Property.price >= min_price)
     if max_price is not None:
         query = query.filter(Property.price <= max_price)
 
     total = query.count()
     items = query.offset(skip).limit(limit).all()
+
+    # Popular favoritos
+    populate_favorites(items, current_user.id if current_user else None, db)
 
     return {"total": total, "items": items}
 
@@ -163,3 +211,42 @@ def delete_property(property_id: int, current_user: User = Depends(get_current_u
     db.delete(prop)
     db.commit()
     return None
+
+
+@router.post("/{property_id}/favorite", status_code=status.HTTP_201_CREATED)
+def add_to_favorites(property_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Añadir una propiedad a favoritos."""
+    # Verificar que la propiedad exista
+    prop = db.query(Property).filter(Property.id == property_id).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Vivienda no encontrada")
+
+    # Verificar si ya es favorita
+    existing = db.query(Favorite).filter(
+        Favorite.user_id == current_user.id,
+        Favorite.property_id == property_id
+    ).first()
+
+    if existing:
+        return {"message": "Ya está en tus favoritos"}
+
+    new_favorite = Favorite(user_id=current_user.id, property_id=property_id)
+    db.add(new_favorite)
+    db.commit()
+    return {"message": "Añadida a favoritos exitosamente"}
+
+
+@router.delete("/{property_id}/favorite")
+def remove_from_favorites(property_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Quitar una propiedad de favoritos."""
+    favorite = db.query(Favorite).filter(
+        Favorite.user_id == current_user.id,
+        Favorite.property_id == property_id
+    ).first()
+
+    if not favorite:
+        raise HTTPException(status_code=404, detail="No se encontró en tus favoritos")
+
+    db.delete(favorite)
+    db.commit()
+    return {"message": "Quitada de favoritos exitosamente"}

@@ -53,6 +53,7 @@ class PropertyResponse(PropertyBase):
     publisher_id: int
     status: str
     rejection_reason: Optional[str] = None
+    is_favorite: bool = False
 
     class Config:
         from_attributes = True

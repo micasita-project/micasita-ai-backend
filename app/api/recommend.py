@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 import os
 import math
 import json
@@ -15,7 +15,8 @@ from app.models.user import User
 from app.models.workplace import Workplace
 from app.models.recommendation_preference import RecommendationPreference
 from app.models.recommendation_history import RecommendationHistory
-from app.core.security import get_current_user
+from app.models.favorite import Favorite
+from app.core.security import get_current_user, get_current_user_optional
 from app.schemas.recommend import RecommendationResponse, GuestRecommendRequest, RecommendationHistoryResponse
 from app.schemas.property import PropertyResponse
 
@@ -84,7 +85,8 @@ def get_osrm_route(lat1, lon1, lat2, lon2, mode):
 def generar_recomendacion(
     work_lat, work_lon, budget, mode, db,
     max_distance_km=None, limit=None,
-    user_home_lat=None, user_home_lon=None
+    user_home_lat=None, user_home_lon=None,
+    user_id=None
 ):
     # Solo recomendamos casas aprobadas por moderación
     casas = db.query(Property).filter(Property.status == "approved").all()
@@ -177,14 +179,22 @@ def generar_recomendacion(
     # Inferencia
     predicciones = recommender.predict(df_eval)
     
+    # Obtener favoritos del usuario si esta logueado
+    fav_ids = set()
+    if user_id:
+        fav_ids = set(row[0] for row in db.query(Favorite.property_id).filter(Favorite.user_id == user_id).all())
+
     # Combinar resultados
     resultados = []
     for idx, data in enumerate(lista_casas):
         score_crudo = float(predicciones[idx])
         score_limpio = max(0, min(100, round(score_crudo, 1)))
         
+        prop = data["prop"]
+        prop.is_favorite = prop.id in fav_ids
+        
         resultados.append({
-            "property": data["prop"],
+            "property": prop,
             "predicted_time_min": round(data["tiempo"]),
             "match_score": score_limpio,
             "time_saved_mins": round(data["time_saved"]) if data["time_saved"] is not None else None
@@ -236,14 +246,15 @@ def _serialize_results(resultados):
 # ── Endpoints ────────────────────────────────────────────────────
 
 @router.post("/guest", response_model=List[RecommendationResponse])
-def recommend_for_guest(req: GuestRecommendRequest, db: Session = Depends(get_db)):
+def recommend_for_guest(req: GuestRecommendRequest, current_user: Optional[User] = Depends(get_current_user_optional), db: Session = Depends(get_db)):
     """Si no esta logueado, necesita pasar los 4 datos explicitamente"""
     return generar_recomendacion(
         req.work_lat, req.work_lon, req.budget, req.preferred_transportation, db,
         max_distance_km=req.max_distance_km,
         limit=req.limit,
         user_home_lat=req.home_lat,
-        user_home_lon=req.home_lon
+        user_home_lon=req.home_lon,
+        user_id=current_user.id if current_user else None
     )
 
 
@@ -273,7 +284,8 @@ def generate_recommendations(
         max_distance_km=dist,
         limit=limit,
         user_home_lat=current_user.home_lat,
-        user_home_lon=current_user.home_lon
+        user_home_lon=current_user.home_lon,
+        user_id=current_user.id
     )
     
     # Serializar y guardar en historial (INSERT, no UPDATE)
@@ -308,7 +320,14 @@ def get_latest_recommendations(
     if not latest:
         raise HTTPException(status_code=404, detail="No hay recomendaciones guardadas. Genera una primero.")
     
-    return json.loads(latest.results)
+    results = json.loads(latest.results)
+    
+    # Actualizar is_favorite ya que el cache puede estar viejo
+    fav_ids = set(row[0] for row in db.query(Favorite.property_id).filter(Favorite.user_id == current_user.id).all())
+    for r in results:
+        r["property"]["is_favorite"] = r["property"]["id"] in fav_ids
+        
+    return results
 
 
 @router.get("/workplaces/{workplace_id}/history")
