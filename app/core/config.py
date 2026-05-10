@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     AZURE_STORAGE_CONNECTION_STRING: str
     AZURE_CONTAINER_NAME: str
 
+    # Azure Email
+    AZURE_COMMUNICATION_CONNECTION_STRING: str
+    AZURE_EMAIL_SENDER: str
+
     model_config = {
         "env_file": ".env",
         "case_sensitive": True

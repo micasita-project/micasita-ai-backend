@@ -65,6 +65,7 @@ def create_property(property_data: PropertyCreate, current_user: User = Depends(
     db.refresh(new_property)
     return new_property
 
+
 @router.patch("/{property_id}", response_model=PropertyResponse)
 def update_property(property_id: int, property_data: PropertyUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Edita una propiedad siempre que no esté en estado 'pending'."""
@@ -123,7 +124,11 @@ def list_properties(
     db: Session = Depends(get_db)
 ):
     """Lista propiedades aprobadas con paginación y filtros."""
-    query = db.query(Property).filter(Property.status == "approved")
+    # Mostrar solo propiedades aprobadas y que no estén ocultas por bloqueo de usuario
+    query = db.query(Property).filter(
+        Property.status == "approved",
+        Property.hidden_by_user_block == False,
+    )
 
     if district:
         query = query.filter(Property.district.ilike(f"%{district}%"))

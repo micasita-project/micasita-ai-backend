@@ -8,6 +8,8 @@ from app.models.user import User
 from app.schemas.property import PropertyResponse, PropertyStatusUpdate
 from app.schemas.user import UserResponse, UserStatusUpdate
 from app.core.security import get_current_admin
+from app.core.email import email_service
+from app.core.email_templates import get_block_notification_template, get_property_status_template
 
 router = APIRouter(prefix="/admin", tags=["Admin (Moderación)"])
 
@@ -49,11 +51,14 @@ def update_property_status(
     
     propietario = db.query(User).filter(User.id == prop.publisher_id).first()
     if propietario:
-        if prop.status == "approved":
-            print(f"📧 [EMAIL MOCK] Enviando correo a {propietario.email}: Tu propiedad '{prop.title}' ha sido APROBADA.")
-        elif prop.status == "rejected":
-            reason = prop.rejection_reason or "Sin motivo especificado."
-            print(f"📧 [EMAIL MOCK] Enviando correo a {propietario.email}: Tu propiedad '{prop.title}' ha sido RECHAZADA. Motivo: {reason}")
+        subject = f"Actualización de tu propiedad: {prop.status.capitalize()}"
+        html_content = get_property_status_template(
+            user_name=propietario.name,
+            property_title=prop.title,
+            status=prop.status,
+            reason=prop.rejection_reason
+        )
+        email_service.send_email(propietario.email, subject, html_content)
             
     return prop
 
@@ -96,6 +101,19 @@ def update_user_status(
         raise HTTPException(status_code=400, detail="No puedes bloquearte a ti mismo")
         
     user.is_active = status_data.is_active
+    
+    # Ocultar o mostrar todas las propiedades del usuario automáticamente
+    # Si is_active es False, hidden_by_user_block debe ser True
+    db.query(Property).filter(Property.publisher_id == user.id).update(
+        {"hidden_by_user_block": not status_data.is_active}
+    )
+    
     db.commit()
     db.refresh(user)
+    
+    # Enviar notificación por correo
+    subject = "Actualización importante de tu cuenta - MiCasita"
+    html_content = get_block_notification_template(user.name, user.is_active)
+    email_service.send_email(user.email, subject, html_content)
+    
     return user

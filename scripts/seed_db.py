@@ -111,6 +111,7 @@ def seed_database():
                 source_url=item.get("source_url"),
                 features=item.get("features") or [],
                 status="approved", # Las casas del seed se marcan como aprobadas automáticamente
+                hidden_by_user_block=False,
                 rejection_reason=None
             )
             

@@ -14,3 +14,4 @@ pandas==2.2.2
 scikit-learn==1.4.2
 joblib==1.4.2
 requests==2.31.0
+azure-communication-email==1.0.0
