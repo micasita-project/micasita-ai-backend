@@ -13,24 +13,45 @@ from app.core.email_templates import get_block_notification_template, get_proper
 
 router = APIRouter(prefix="/admin", tags=["Admin (Moderación)"])
 
-@router.get("/properties/pending", response_model=List[PropertyResponse])
+@router.get(
+    "/properties/pending",
+    response_model=List[PropertyResponse],
+    summary="Viviendas pendientes de revisión",
+    response_description="Lista de viviendas en estado pending",
+    responses={403: {"description": "El usuario no tiene rol admin"}},
+)
 def get_pending_properties(
-    skip: int = 0, 
-    limit: int = 100, 
-    admin: User = Depends(get_current_admin), 
+    skip: int = 0,
+    limit: int = 100,
+    admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """Listar todas las viviendas esperando aprobación. Solo accesible para administradores."""
+    """Lista todas las viviendas en estado `pending` que esperan aprobación o rechazo."""
     return db.query(Property).filter(Property.status == "pending").offset(skip).limit(limit).all()
 
-@router.patch("/properties/{property_id}/status", response_model=PropertyResponse)
+@router.patch(
+    "/properties/{property_id}/status",
+    response_model=PropertyResponse,
+    summary="Aprobar o rechazar vivienda",
+    response_description="Vivienda con estado actualizado",
+    responses={
+        400: {"description": "Estado inválido o rejection_reason faltante al rechazar"},
+        403: {"description": "El usuario no tiene rol admin"},
+        404: {"description": "Vivienda no encontrada"},
+    },
+)
 def update_property_status(
-    property_id: int, 
-    status_data: PropertyStatusUpdate, 
-    admin: User = Depends(get_current_admin), 
+    property_id: int,
+    status_data: PropertyStatusUpdate,
+    admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """Aprobar o rechazar una vivienda. Solo accesible para administradores."""
+    """
+    Cambia el estado de una vivienda a `approved`, `rejected` o `pending`.
+
+    - Al rechazar (`rejected`), el campo `rejection_reason` es obligatorio.
+    - Se envía una notificación por email al propietario al cambiar el estado.
+    """
     prop = db.query(Property).filter(Property.id == property_id).first()
     if not prop:
         raise HTTPException(status_code=404, detail="Vivienda no encontrada")
@@ -62,15 +83,21 @@ def update_property_status(
             
     return prop
 
-@router.get("/users", response_model=List[UserResponse])
+@router.get(
+    "/users",
+    response_model=List[UserResponse],
+    summary="Listar usuarios",
+    response_description="Lista de usuarios registrados en el sistema",
+    responses={403: {"description": "El usuario no tiene rol admin"}},
+)
 def get_all_users(
     search: Optional[str] = None,
-    skip: int = 0, 
-    limit: int = 100, 
-    admin: User = Depends(get_current_admin), 
+    skip: int = 0,
+    limit: int = 100,
+    admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """Obtener listado de todos los usuarios registrados."""
+    """Lista todos los usuarios del sistema. El parámetro `search` filtra por email, nombre o apellido (búsqueda parcial)."""
     query = db.query(User)
     
     if search:
@@ -85,14 +112,30 @@ def get_all_users(
         
     return query.offset(skip).limit(limit).all()
 
-@router.patch("/users/{user_id}/status", response_model=UserResponse)
+@router.patch(
+    "/users/{user_id}/status",
+    response_model=UserResponse,
+    summary="Activar o bloquear usuario",
+    response_description="Usuario con estado actualizado",
+    responses={
+        400: {"description": "Un admin no puede bloquearse a sí mismo"},
+        403: {"description": "El usuario no tiene rol admin"},
+        404: {"description": "Usuario no encontrado"},
+    },
+)
 def update_user_status(
-    user_id: int, 
-    status_data: UserStatusUpdate, 
-    admin: User = Depends(get_current_admin), 
+    user_id: int,
+    status_data: UserStatusUpdate,
+    admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """Bloquear o suspender la cuenta de un usuario."""
+    """
+    Activa o bloquea la cuenta de un usuario (`is_active: true/false`).
+
+    - Al bloquear, todas sus viviendas se ocultan automáticamente del feed público.
+    - Al reactivar, sus viviendas vuelven a ser visibles.
+    - Se envía una notificación por email al usuario afectado.
+    """
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")

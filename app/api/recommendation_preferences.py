@@ -10,9 +10,24 @@ from app.core.security import get_current_user
 
 router = APIRouter(prefix="/recommendation_preferences", tags=["Preferencias de Recomendación"])
 
-@router.post("/", response_model=RecommendationPreferenceResponse)
+@router.post(
+    "/",
+    response_model=RecommendationPreferenceResponse,
+    summary="Crear preferencias de recomendación",
+    response_description="Preferencias creadas para el workplace indicado",
+    responses={
+        400: {"description": "Ya existen preferencias para este workplace"},
+        404: {"description": "Workplace no encontrado o no pertenece al usuario"},
+    },
+)
 def create_preference(pref_data: RecommendationPreferenceCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Crear preferencias de recomendación para un lugar de trabajo"""
+    """
+    Crea las preferencias de recomendación vinculadas a un workplace.
+
+    Solo se puede crear una vez por workplace. Para modificarlas usar `PATCH /{pref_id}`.
+    Estas preferencias definen el presupuesto, medio de transporte y radio de búsqueda
+    que usará el motor XGBoost al generar recomendaciones.
+    """
     # Verificar que el workplace pertenece al usuario
     work = db.query(Workplace).filter(Workplace.id == pref_data.workplace_id, Workplace.user_id == current_user.id).first()
     if not work:
@@ -29,9 +44,14 @@ def create_preference(pref_data: RecommendationPreferenceCreate, current_user: U
     db.refresh(new_pref)
     return new_pref
 
-@router.get("/", response_model=List[RecommendationPreferenceResponse])
+@router.get(
+    "/",
+    response_model=List[RecommendationPreferenceResponse],
+    summary="Listar preferencias de recomendación",
+    response_description="Preferencias del usuario, opcionalmente filtradas por workplace",
+)
 def get_preferences(workplace_id: Optional[int] = None, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Obtener preferencias (todas las del usuario o filtradas por workplace_id)"""
+    """Devuelve todas las preferencias del usuario. Pasar `workplace_id` para obtener solo las de un workplace específico."""
     query = db.query(RecommendationPreference).filter(RecommendationPreference.user_id == current_user.id)
     
     if workplace_id is not None:
@@ -39,9 +59,15 @@ def get_preferences(workplace_id: Optional[int] = None, current_user: User = Dep
         
     return query.all()
 
-@router.patch("/{pref_id}", response_model=RecommendationPreferenceResponse)
+@router.patch(
+    "/{pref_id}",
+    response_model=RecommendationPreferenceResponse,
+    summary="Actualizar preferencias de recomendación",
+    response_description="Preferencias actualizadas",
+    responses={404: {"description": "Preferencias no encontradas"}},
+)
 def update_preference(pref_id: int, pref_data: RecommendationPreferenceUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Actualizar preferencias de recomendación"""
+    """Actualiza el presupuesto, transporte o radio de búsqueda de unas preferencias existentes. Solo los campos enviados se modifican."""
     pref = db.query(RecommendationPreference).filter(RecommendationPreference.id == pref_id, RecommendationPreference.user_id == current_user.id).first()
     if not pref:
         raise HTTPException(status_code=404, detail="Preferencias no encontradas")

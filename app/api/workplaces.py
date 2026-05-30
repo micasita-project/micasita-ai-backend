@@ -9,23 +9,44 @@ from app.core.security import get_current_user
 
 router = APIRouter(prefix="/workplaces", tags=["Trabajos (Workplaces)"])
 
-@router.post("/", response_model=WorkplaceResponse)
+@router.post(
+    "/",
+    response_model=WorkplaceResponse,
+    summary="Registrar lugar de trabajo",
+    response_description="Workplace creado con su ID asignado",
+)
 def create_workplace(work_data: WorkplaceCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Crear un nuevo lugar de trabajo/estudio para el motor IA"""
+    """
+    Registra un lugar de trabajo o estudio del usuario.
+
+    Las coordenadas (`work_lat`, `work_lon`) son el punto de origen desde el cual
+    el motor de IA calculará el tiempo de viaje a cada vivienda.
+    """
     new_work = Workplace(**work_data.model_dump(), user_id=current_user.id)
     db.add(new_work)
     db.commit()
     db.refresh(new_work)
     return new_work
 
-@router.get("/", response_model=List[WorkplaceResponse])
+@router.get(
+    "/",
+    response_model=List[WorkplaceResponse],
+    summary="Listar lugares de trabajo",
+    response_description="Todos los workplaces del usuario autenticado",
+)
 def get_workplaces(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Devuelve la lista de todos los trabajos guardados por el usuario logueado"""
+    """Devuelve todos los lugares de trabajo registrados por el usuario autenticado."""
     return db.query(Workplace).filter(Workplace.user_id == current_user.id).all()
 
-@router.patch("/{workplace_id}", response_model=WorkplaceResponse)
+@router.patch(
+    "/{workplace_id}",
+    response_model=WorkplaceResponse,
+    summary="Actualizar lugar de trabajo",
+    response_description="Workplace con datos actualizados",
+    responses={404: {"description": "Workplace no encontrado"}},
+)
 def update_workplace(workplace_id: int, work_data: WorkplaceUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Actualizar datos del lugar de trabajo"""
+    """Actualiza la dirección o coordenadas de un lugar de trabajo. Solo se modifican los campos enviados."""
     work = db.query(Workplace).filter(Workplace.id == workplace_id, Workplace.user_id == current_user.id).first()
     if not work:
         raise HTTPException(status_code=404, detail="Trabajo no encontrado")
@@ -38,9 +59,14 @@ def update_workplace(workplace_id: int, work_data: WorkplaceUpdate, current_user
     db.refresh(work)
     return work
 
-@router.delete("/{workplace_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{workplace_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar lugar de trabajo",
+    responses={404: {"description": "Workplace no encontrado"}},
+)
 def delete_workplace(workplace_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Borrar un trabajo"""
+    """Elimina un lugar de trabajo del usuario. Solo el dueño puede eliminarlo."""
     work = db.query(Workplace).filter(Workplace.id == workplace_id, Workplace.user_id == current_user.id).first()
     if not work:
         raise HTTPException(status_code=404, detail="Trabajo no encontrado")

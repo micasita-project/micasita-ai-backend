@@ -33,9 +33,23 @@ if settings.AZURE_STORAGE_CONNECTION_STRING:
         settings.AZURE_STORAGE_CONNECTION_STRING)
 
 
-@router.post("/upload_image", response_model=ImageUploadResponse)
+@router.post(
+    "/upload_image",
+    response_model=ImageUploadResponse,
+    summary="Subir imagen de vivienda",
+    response_description="URL pública permanente de la imagen en Azure",
+    responses={
+        500: {"description": "Azure Blob Storage no configurado en el servidor"},
+        400: {"description": "Error al subir el archivo a Azure"},
+    },
+)
 def upload_image(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
-    """Sube un archivo a Azure Blob Storage y devuelve el URL web estático."""
+    """
+    Sube una imagen a Azure Blob Storage con compresión automática y devuelve la URL pública.
+
+    Usar este endpoint antes de crear una vivienda para obtener las URLs de las imágenes.
+    El nombre del archivo se reemplaza por un UUID para evitar colisiones.
+    """
     if not blob_service_client or not settings.AZURE_CONTAINER_NAME:
         raise HTTPException(
             status_code=500, detail="Falta configurar Azure en el archivo .env")
@@ -66,9 +80,19 @@ def upload_image(file: UploadFile = File(...), current_user: User = Depends(get_
             status_code=400, detail=f"Error subiendo a Azure: {str(e)}")
 
 
-@router.post("/", response_model=PropertyResponse)
+@router.post(
+    "/",
+    response_model=PropertyResponse,
+    summary="Publicar vivienda",
+    response_description="Vivienda creada en estado pendiente de revisión",
+)
 def create_property(property_data: PropertyCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Solo usuarios registrados publican casas. Por defecto quedan 'en revisión'."""
+    """
+    Crea una nueva publicación de vivienda. El estado inicial siempre es `pending`.
+
+    Un administrador debe aprobarla antes de que aparezca en el feed público.
+    Incluir en `images` las URLs obtenidas previamente con `/upload_image`.
+    """
     new_property = Property(
         **property_data.model_dump(),
         publisher_id=current_user.id,
@@ -80,9 +104,24 @@ def create_property(property_data: PropertyCreate, current_user: User = Depends(
     return new_property
 
 
-@router.patch("/{property_id}", response_model=PropertyResponse)
-def update_property(property_id: int, property_data: PropertyUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Edita una propiedad siempre que no esté en estado 'pending'."""
+@router.patch(
+    "/{property_id}",
+    response_model=PropertyResponse,
+    summary="Editar vivienda",
+    response_description="Vivienda actualizada",
+    responses={
+        403: {"description": "Sin permisos o vivienda en estado pending"},
+        404: {"description": "Vivienda no encontrada"},
+    },
+)
+def update_property(property_id: int, property_data: PropertyUpdate, current_user: 
+    User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Actualiza los campos de una vivienda. Solo el dueño o un admin pueden editar.
+
+    - No se puede editar si la vivienda está en estado `pending`.
+    - Al editar (sin ser admin), la vivienda vuelve automáticamente a `pending` para nueva revisión.
+    """
     prop = db.query(Property).filter(Property.id == property_id).first()
     if not prop:
         raise HTTPException(status_code=404, detail="Vivienda no encontrada")
@@ -108,9 +147,14 @@ def update_property(property_id: int, property_data: PropertyUpdate, current_use
     return prop
 
 
-@router.get("/mine", response_model=List[PropertyResponse])
+@router.get(
+    "/mine",
+    response_model=List[PropertyResponse],
+    summary="Mis publicaciones",
+    response_description="Lista de viviendas del usuario autenticado en cualquier estado",
+)
 def get_my_properties(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Obtiene todas las propiedades creadas por el usuario autenticado (para la sección 'Mis Publicaciones')."""
+    """Devuelve todas las viviendas publicadas por el usuario (pending, approved y rejected). Para la sección 'Mis Publicaciones'."""
     casas = db.query(Property).filter(
         Property.publisher_id == current_user.id).all()
     
@@ -120,9 +164,14 @@ def get_my_properties(db: Session = Depends(get_db), current_user: User = Depend
     return casas
 
 
-@router.get("/favorites", response_model=List[PropertyResponse])
+@router.get(
+    "/favorites",
+    response_model=List[PropertyResponse],
+    summary="Mis favoritos",
+    response_description="Lista de viviendas marcadas como favoritas (is_favorite siempre true)",
+)
 def get_my_favorites(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Obtener la lista de viviendas marcadas como favoritas por el usuario."""
+    """Devuelve todas las viviendas que el usuario marcó como favoritas."""
     favorites = db.query(Property).join(
         Favorite, Favorite.property_id == Property.id
     ).filter(
@@ -135,9 +184,15 @@ def get_my_favorites(current_user: User = Depends(get_current_user), db: Session
     return favorites
 
 
-@router.get("/{property_id}", response_model=PropertyResponse)
+@router.get(
+    "/{property_id}",
+    response_model=PropertyResponse,
+    summary="Detalle de vivienda",
+    response_description="Datos completos de la vivienda",
+    responses={404: {"description": "Vivienda no encontrada"}},
+)
 def get_property(property_id: int, current_user: Optional[User] = Depends(get_current_user_optional), db: Session = Depends(get_db)):
-    """Obtiene el detalle de una propiedad por su ID."""
+    """Obtiene el detalle de una vivienda por su ID. Si el usuario está autenticado, incluye `is_favorite`."""
     prop = db.query(Property).filter(Property.id == property_id).first()
     if not prop:
         raise HTTPException(status_code=404, detail="Vivienda no encontrada")
@@ -152,7 +207,12 @@ def get_property(property_id: int, current_user: Optional[User] = Depends(get_cu
     return prop
 
 
-@router.get("/", response_model=PaginatedPropertyResponse)
+@router.get(
+    "/",
+    response_model=PaginatedPropertyResponse,
+    summary="Listar viviendas (feed público)",
+    response_description="Lista paginada de viviendas aprobadas con total de registros",
+)
 def list_properties(
     skip: int = 0,
     limit: int = 10,
@@ -166,7 +226,12 @@ def list_properties(
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
-    """Lista propiedades aprobadas con paginación y filtros."""
+    """
+    Lista las viviendas aprobadas con paginación y filtros opcionales.
+
+    No muestra viviendas de usuarios bloqueados (`hidden_by_user_block=true`).
+    Si se envía token JWT, el campo `is_favorite` refleja el estado real del usuario.
+    """
     # Mostrar solo propiedades aprobadas y que no estén ocultas por bloqueo de usuario
     query = db.query(Property).filter(
         Property.status == "approved",
@@ -197,9 +262,17 @@ def list_properties(
     return {"total": total, "items": items}
 
 
-@router.delete("/{property_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{property_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar vivienda",
+    responses={
+        403: {"description": "Sin permisos para eliminar esta vivienda"},
+        404: {"description": "Vivienda no encontrada"},
+    },
+)
 def delete_property(property_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Solo el dueño original o admin puede borrar su publicacion"""
+    """Elimina permanentemente una vivienda. Solo el dueño o un administrador pueden hacerlo."""
     prop = db.query(Property).filter(Property.id == property_id).first()
     if not prop:
         raise HTTPException(status_code=404, detail="Vivienda no encontrada")
@@ -213,9 +286,15 @@ def delete_property(property_id: int, current_user: User = Depends(get_current_u
     return None
 
 
-@router.post("/{property_id}/favorite", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{property_id}/favorite",
+    status_code=status.HTTP_201_CREATED,
+    summary="Añadir a favoritos",
+    response_description="Confirmación de favorito añadido",
+    responses={404: {"description": "Vivienda no encontrada"}},
+)
 def add_to_favorites(property_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Añadir una propiedad a favoritos."""
+    """Marca una vivienda como favorita. Si ya estaba marcada, devuelve 200 sin error."""
     # Verificar que la propiedad exista
     prop = db.query(Property).filter(Property.id == property_id).first()
     if not prop:
@@ -236,9 +315,14 @@ def add_to_favorites(property_id: int, current_user: User = Depends(get_current_
     return {"message": "Añadida a favoritos exitosamente"}
 
 
-@router.delete("/{property_id}/favorite")
+@router.delete(
+    "/{property_id}/favorite",
+    summary="Quitar de favoritos",
+    response_description="Confirmación de favorito eliminado",
+    responses={404: {"description": "La vivienda no estaba en favoritos"}},
+)
 def remove_from_favorites(property_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Quitar una propiedad de favoritos."""
+    """Quita una vivienda de la lista de favoritos del usuario."""
     favorite = db.query(Favorite).filter(
         Favorite.user_id == current_user.id,
         Favorite.property_id == property_id

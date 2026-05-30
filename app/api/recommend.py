@@ -245,9 +245,20 @@ def _serialize_results(resultados):
 
 # ── Endpoints ────────────────────────────────────────────────────
 
-@router.post("/guest", response_model=List[RecommendationResponse])
+@router.post(
+    "/guest",
+    response_model=List[RecommendationResponse],
+    summary="Recomendaciones para visitante",
+    response_description="Lista de viviendas recomendadas ordenadas por match_score descendente",
+)
 def recommend_for_guest(req: GuestRecommendRequest, current_user: Optional[User] = Depends(get_current_user_optional), db: Session = Depends(get_db)):
-    """Si no esta logueado, necesita pasar los 4 datos explicitamente"""
+    """
+    Genera recomendaciones sin necesidad de cuenta registrada.
+
+    Requiere pasar manualmente las coordenadas del trabajo, presupuesto y medio de transporte.
+    Si se envía token JWT, el campo `is_favorite` refleja el estado real del usuario.
+    Si se envían `home_lat`/`home_lon`, calcula el campo `time_saved_mins`.
+    """
     return generar_recomendacion(
         req.work_lat, req.work_lon, req.budget, req.preferred_transportation, db,
         max_distance_km=req.max_distance_km,
@@ -258,7 +269,16 @@ def recommend_for_guest(req: GuestRecommendRequest, current_user: Optional[User]
     )
 
 
-@router.post("/workplaces/{workplace_id}/generate", response_model=List[RecommendationResponse])
+@router.post(
+    "/workplaces/{workplace_id}/generate",
+    response_model=List[RecommendationResponse],
+    summary="Generar recomendaciones (con historial)",
+    response_description="Viviendas recomendadas por XGBoost, guardadas en historial",
+    responses={
+        400: {"description": "El workplace no tiene preferencias de recomendación configuradas"},
+        404: {"description": "Workplace no encontrado"},
+    },
+)
 def generate_recommendations(
     workplace_id: int,
     max_distance_km: float = 10.0,
@@ -266,7 +286,13 @@ def generate_recommendations(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Ejecuta XGBoost y guarda el resultado en el historial. Usar con moderacion."""
+    """
+    Ejecuta el modelo XGBoost usando las preferencias guardadas del workplace y almacena el resultado.
+
+    Cada llamada crea una nueva entrada en el historial (no sobrescribe).
+    El parámetro `max_distance_km` de query sobreescribe el valor de las preferencias si se envía explícitamente.
+    Usar con moderación — cada llamada consume tiempo de cómputo y consultas a OSRM.
+    """
     work = db.query(Workplace).filter(Workplace.id == workplace_id, Workplace.user_id == current_user.id).first()
     if not work:
         raise HTTPException(status_code=404, detail="Lugar de trabajo no encontrado")
@@ -301,13 +327,26 @@ def generate_recommendations(
     return resultados
 
 
-@router.get("/workplaces/{workplace_id}/latest", response_model=List[RecommendationResponse])
+@router.get(
+    "/workplaces/{workplace_id}/latest",
+    response_model=List[RecommendationResponse],
+    summary="Última recomendación (caché)",
+    response_description="Última recomendación guardada con is_favorite actualizado en tiempo real",
+    responses={
+        404: {"description": "Workplace no encontrado o sin recomendaciones guardadas"},
+    },
+)
 def get_latest_recommendations(
     workplace_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Devuelve la ultima recomendacion cacheada SIN ejecutar IA."""
+    """
+    Devuelve la última recomendación guardada sin ejecutar el modelo XGBoost.
+
+    El campo `is_favorite` se actualiza en tiempo real aunque el caché sea antiguo.
+    Usar este endpoint para la carga inicial de la pantalla de resultados.
+    """
     work = db.query(Workplace).filter(Workplace.id == workplace_id, Workplace.user_id == current_user.id).first()
     if not work:
         raise HTTPException(status_code=404, detail="Lugar de trabajo no encontrado")
@@ -330,13 +369,18 @@ def get_latest_recommendations(
     return results
 
 
-@router.get("/workplaces/{workplace_id}/history")
+@router.get(
+    "/workplaces/{workplace_id}/history",
+    summary="Historial de recomendaciones",
+    response_description="Todas las sesiones de recomendación generadas para el workplace",
+    responses={404: {"description": "Workplace no encontrado"}},
+)
 def get_recommendation_history(
     workplace_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Devuelve todo el historial de recomendaciones para metricas y analisis."""
+    """Devuelve todas las sesiones de recomendación generadas para un workplace, ordenadas de más reciente a más antigua."""
     work = db.query(Workplace).filter(Workplace.id == workplace_id, Workplace.user_id == current_user.id).first()
     if not work:
         raise HTTPException(status_code=404, detail="Lugar de trabajo no encontrado")
@@ -358,9 +402,23 @@ def get_recommendation_history(
 
 
 # Mantener el endpoint viejo para compatibilidad (redirige a generate)
-@router.get("/workplaces/{workplace_id}", response_model=List[RecommendationResponse])
+@router.get(
+    "/workplaces/{workplace_id}",
+    response_model=List[RecommendationResponse],
+    summary="[Deprecated] Recomendaciones directas sin historial",
+    response_description="Recomendaciones generadas (no se guardan)",
+    deprecated=True,
+    responses={
+        400: {"description": "Sin preferencias configuradas para el workplace"},
+        404: {"description": "Workplace no encontrado"},
+    },
+)
 def recommend_for_logged_user(workplace_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """LEGACY: Ejecuta XGBoost directamente sin cachear. Usar /generate en su lugar."""
+    """
+    **Deprecado.** Ejecuta XGBoost sin guardar en historial.
+
+    Usar `POST /recommend/workplaces/{workplace_id}/generate` en su lugar.
+    """
     work = db.query(Workplace).filter(Workplace.id == workplace_id, Workplace.user_id == current_user.id).first()
     if not work:
         raise HTTPException(status_code=404, detail="Lugar de trabajo no encontrado")
