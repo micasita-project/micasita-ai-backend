@@ -78,9 +78,9 @@ def main():
         return
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    json_path = os.path.join(base_dir, "data", "raw", "housing.json")
+    json_path = os.path.join(base_dir, "data", "raw", "viviendas_500.json")
     output_json_path = os.path.join(
-        base_dir, "data", "raw", "housing_updated.json")
+        base_dir, "data", "raw", "viviendas_500_updated.json")
     images_base_dir = os.path.join(base_dir, "data", "images")
 
     if not os.path.exists(json_path):

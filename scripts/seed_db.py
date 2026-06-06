@@ -10,10 +10,9 @@ from app.core.security import get_password_hash
 from app.models.user import User
 from app.models.workplace import Workplace
 from app.models.property import Property
-from app.models.recommendation_history import RecommendationHistory
 from app.models.recommendation_preference import RecommendationPreference
 
-JSON_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "raw", "housing_updated.json")
+JSON_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "raw", "viviendas_500.json")
 
 def seed_database():
     print("Iniciando proceso de seeding...")

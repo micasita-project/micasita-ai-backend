@@ -144,7 +144,7 @@ def build_dataset(viviendas_path, usuarios_path, output_csv_path):
 if __name__ == "__main__":
     # Las rutas asumen que ejecutas el script desde la raíz: `python scripts/dataset_builder.py`
     build_dataset(
-        viviendas_path='data/raw/housing.json', 
-        usuarios_path='data/raw/users.json', 
+        viviendas_path='data/raw/viviendas_500.json',
+        usuarios_path='data/raw/users.json',
         output_csv_path='data/processed/training_dataset.csv'
     )
