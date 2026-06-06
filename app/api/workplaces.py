@@ -6,6 +6,7 @@ from app.models.workplace import Workplace
 from app.models.user import User
 from app.schemas.workplace import WorkplaceCreate, WorkplaceResponse, WorkplaceUpdate
 from app.core.security import get_current_user
+from app.core.geo import is_within_lima, LIMA_LOCATION_ERROR
 
 router = APIRouter(prefix="/workplaces", tags=["Trabajos (Workplaces)"])
 
@@ -21,7 +22,11 @@ def create_workplace(work_data: WorkplaceCreate, current_user: User = Depends(ge
 
     Las coordenadas (`work_lat`, `work_lon`) son el punto de origen desde el cual
     el motor de IA calculará el tiempo de viaje a cada vivienda.
+    Solo se aceptan coordenadas dentro de Lima Metropolitana.
     """
+    if not is_within_lima(work_data.work_lat, work_data.work_lon):
+        raise HTTPException(status_code=400, detail=LIMA_LOCATION_ERROR)
+
     new_work = Workplace(**work_data.model_dump(), user_id=current_user.id)
     db.add(new_work)
     db.commit()
@@ -52,6 +57,13 @@ def update_workplace(workplace_id: int, work_data: WorkplaceUpdate, current_user
         raise HTTPException(status_code=404, detail="Trabajo no encontrado")
         
     update_data = work_data.model_dump(exclude_unset=True)
+
+    if 'work_lat' in update_data or 'work_lon' in update_data:
+        lat = update_data.get('work_lat', work.work_lat)
+        lon = update_data.get('work_lon', work.work_lon)
+        if not is_within_lima(lat, lon):
+            raise HTTPException(status_code=400, detail=LIMA_LOCATION_ERROR)
+
     for key, value in update_data.items():
         setattr(work, key, value)
         

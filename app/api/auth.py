@@ -4,6 +4,7 @@ from app.core.database import get_db
 from app.models.user import User
 from app.schemas.user import UserCreate, UserResponse, Token
 from app.core.security import get_password_hash, verify_password, create_access_token, get_current_user
+from app.core.geo import is_within_lima, LIMA_LOCATION_ERROR
 from app.core.config import settings
 from datetime import timedelta
 from fastapi.security import OAuth2PasswordRequestForm
@@ -114,6 +115,9 @@ def update_user_home(home_data: UserHomeUpdate, current_user: User = Depends(get
     Esta coordenada se usa para calcular el campo `time_saved_mins` en las recomendaciones
     (diferencia entre el tiempo de viaje actual y el de la nueva vivienda propuesta).
     """
+    if not is_within_lima(home_data.home_lat, home_data.home_lon):
+        raise HTTPException(status_code=400, detail=LIMA_LOCATION_ERROR)
+
     current_user.home_lat = home_data.home_lat
     current_user.home_lon = home_data.home_lon
     current_user.home_address = home_data.home_address
