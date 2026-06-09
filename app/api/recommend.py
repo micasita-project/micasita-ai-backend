@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 import os
 import math
+from geoalchemy2.functions import ST_DWithin
 import json
 import joblib
 import pandas as pd
@@ -100,10 +101,6 @@ def generar_recomendacion(
 ):
     import time
 
-    casas = db.query(Property).filter(Property.status == "approved").all()
-    if not casas:
-        return {"results": [], "total": 0, "message": "No hay viviendas disponibles en el sistema.", "min_price_in_area": None}
-
     # Calcular tiempo de viaje actual si tiene casa guardada (para field time_saved_mins)
     current_commute_time = None
     if user_home_lat is not None and user_home_lon is not None:
@@ -115,24 +112,36 @@ def generar_recomendacion(
 
     budget_limit = budget * BUDGET_TOLERANCE
 
-    # Clasificar casas:
-    # - casas_en_radio: todas en el radio elegido (sin filtro de presupuesto) → para calcular min_price_in_area
-    # - casas_candidatas: en radio Y dentro del presupuesto → las que evalúa el modelo
-    casas_en_radio = []
+    # PostGIS ST_DWithin: filtro de radio en SQL con índice GIST (distancia geodésica en metros)
+    # casas_en_radio: todas en el radio sin filtro de presupuesto → para calcular min_price_in_area
+    if max_distance_km is not None:
+        work_wkt = f'SRID=4326;POINT({work_lon} {work_lat})'
+        casas_en_radio = db.query(Property).filter(
+            Property.status == "approved",
+            Property.location.isnot(None),
+            ST_DWithin(Property.location, work_wkt, max_distance_km * 1000)
+        ).all()
+    else:
+        casas_en_radio = db.query(Property).filter(
+            Property.status == "approved"
+        ).all()
+
+    if not casas_en_radio:
+        if max_distance_km:
+            msg = f"No encontramos viviendas disponibles en un radio de {int(max_distance_km)} km."
+        else:
+            msg = "No hay viviendas disponibles en el sistema."
+        return {"results": [], "total": 0, "message": msg, "min_price_in_area": None}
+
+    # casas_candidatas: en radio Y dentro del presupuesto → las que evalúa XGBoost
+    # Haversine aquí solo para ordenar por distancia, no para filtrar
     casas_candidatas = []
-    for c in casas:
+    for c in casas_en_radio:
         if not c.price:
             continue
         straight_dist = haversine(work_lat, work_lon, c.latitude, c.longitude)
-        if max_distance_km is not None and straight_dist > max_distance_km:
-            continue
-        casas_en_radio.append(c)
         if _to_pen(c.price, c.currency) <= budget_limit:
             casas_candidatas.append((straight_dist, c))
-
-    if not casas_en_radio:
-        radio_txt = f"{int(max_distance_km)} km" if max_distance_km else "la zona seleccionada"
-        return {"results": [], "total": 0, "message": f"No encontramos viviendas disponibles en un radio de {radio_txt}.", "min_price_in_area": None}
 
     if not casas_candidatas:
         min_price = round(min(_to_pen(c.price, c.currency) for c in casas_en_radio), 2)

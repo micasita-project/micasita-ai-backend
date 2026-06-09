@@ -89,14 +89,17 @@ def seed_database():
             if total_area is None:
                 total_area = item.get("covered_area_sqm", 0.0) or 0.0
                 
+            lat = item.get("latitude") or 0.0
+            lon = item.get("longitude") or 0.0
             property_obj = Property(
                 publisher_id=default_user.id,
                 title=item.get("title") or "Sin Título",
                 property_type=item.get("property_type") or "Desconocido",
                 district=item.get("district") or "Desconocido",
                 address=item.get("address") or "Sin Dirección",
-                latitude=item.get("latitude") or 0.0,
-                longitude=item.get("longitude") or 0.0,
+                latitude=lat,
+                longitude=lon,
+                location=f'SRID=4326;POINT({lon} {lat})',
                 currency=item.get("currency"),
                 price=item.get("price"),
                 total_area_sqm=total_area,

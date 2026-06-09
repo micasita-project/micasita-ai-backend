@@ -93,10 +93,12 @@ def create_property(property_data: PropertyCreate, current_user: User = Depends(
     Un administrador debe aprobarla antes de que aparezca en el feed público.
     Incluir en `images` las URLs obtenidas previamente con `/upload_image`.
     """
+    data = property_data.model_dump()
     new_property = Property(
-        **property_data.model_dump(),
+        **data,
         publisher_id=current_user.id,
-        status="pending"  # Aseguramos que inicie en revisión
+        status="pending",
+        location=f'SRID=4326;POINT({data["longitude"]} {data["latitude"]})',
     )
     db.add(new_property)
     db.commit()
@@ -137,6 +139,10 @@ def update_property(property_id: int, property_data: PropertyUpdate, current_use
     update_data = property_data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(prop, key, value)
+
+    # Sincronizar columna PostGIS si cambiaron las coordenadas
+    if 'latitude' in update_data or 'longitude' in update_data:
+        prop.location = f'SRID=4326;POINT({prop.longitude} {prop.latitude})'
 
     # Si el usuario NO es admin, forzamos que vuelva a revisión
     if current_user.role != "admin":

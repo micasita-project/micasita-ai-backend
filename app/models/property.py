@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, Boolean
 from sqlalchemy.dialects.postgresql import ARRAY
+from geoalchemy2 import Geography
 from app.core.database import Base
 
 
@@ -16,6 +17,7 @@ class Property(Base):
 
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
+    location = Column(Geography('POINT', srid=4326), nullable=True)
 
     currency = Column(String, nullable=True)
     price = Column(Float, nullable=True)

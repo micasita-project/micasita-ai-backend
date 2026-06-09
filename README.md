@@ -85,7 +85,7 @@ python scripts/seed_db.py
 ### 5. Iniciar la API
 Levanta el servidor local de desarrollo con recarga automática (Este comando es igual para todos los sistemas). Al usar `--host 0.0.0.0`, la API estará disponible para otros dispositivos en tu red local (muy útil si pruebas desde tu celular o un emulador):
 ```bash
-uvicorn app.main:app --reload --host 0.0.0.0
+uvicorn app.main:app --reload --reload-dir app --host 0.0.0.0
 ```
 ¡Listo! La API estará corriendo en tu máquina local (`http://127.0.0.1:8000`) y en la IP local de tu computadora para otros dispositivos.
 ---
@@ -96,7 +96,7 @@ El código está estructurado de forma modular y escalable. A continuación, te 
 
 ### `/app`
 Es el núcleo de la aplicación web (FastAPI). Está dividido en varias capas lógicas:
-* **`/api` (Controladores/Rutas):** Define todos los endpoints (URLs) de la aplicación. Aquí se reciben las peticiones HTTP, pero no se procesa lógica compleja; simplemente se delega a la capa de servicios.
+* **`/api` (Controladores/Rutas):** Define todos los endpoints \(URLs) de la aplicación. Aquí se reciben las peticiones HTTP, pero no se procesa lógica compleja; simplemente se delega a la capa de servicios.
 * **`/core` (Configuración):** Contiene variables de entorno, la conexión a la base de datos (`database.py`) y toda la lógica central de seguridad y autenticación mediante JWT (`security.py`).
 * **`/models` (Modelos de Base de Datos):** Define las tablas de PostgreSQL usando SQLAlchemy (ej. `User`, `Property`, `Workplace`). Representa cómo se guardan físicamente los datos.
 * **`/schemas` (Esquemas Pydantic):** Define cómo deben verse los datos que entran y salen de la API (DTOs). Se encargan de la validación de la información (ej. asegurar que un email sea válido antes de que llegue a la base de datos).
