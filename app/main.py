@@ -29,6 +29,7 @@ app.include_router(geocode.router)
 app.include_router(admin.router)
 
 @app.get("/")
+@app.head("/")
 def read_root():
     return {"message": "Servidor Micasita AI Operativo! Ve a /docs para interactuar con la API."}
 
