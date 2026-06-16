@@ -11,12 +11,19 @@ from app.models.user import User
 from app.models.workplace import Workplace
 from app.models.property import Property
 from app.models.recommendation_preference import RecommendationPreference
+from app.models.recommendation_history import RecommendationHistory
+from app.models.favorite import Favorite
 
-JSON_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "raw", "viviendas_500.json")
+JSON_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "raw", "housing.json")
 
 def seed_database():
     print("Iniciando proceso de seeding...")
-    
+
+    # 0. Habilitar PostGIS (necesario antes de crear la tabla properties)
+    with engine.connect() as conn:
+        conn.execute(__import__("sqlalchemy").text("CREATE EXTENSION IF NOT EXISTS postgis"))
+        conn.commit()
+
     # 1. Asegurar que las tablas existan (sin borrarlas)
     print("Verificando las tablas de la base de datos...")
     Base.metadata.create_all(bind=engine)

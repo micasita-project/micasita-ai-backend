@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
-import uuid
-from azure.storage.blob import BlobServiceClient
+import cloudinary
+import cloudinary.uploader
 from app.core.database import get_db
 from app.models.property import Property
 from app.models.user import User
@@ -13,71 +13,48 @@ from app.models.favorite import Favorite
 
 router = APIRouter(prefix="/properties", tags=["Properties (Viviendas)"])
 
+cloudinary.config(
+    cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+    api_key=settings.CLOUDINARY_API_KEY,
+    api_secret=settings.CLOUDINARY_API_SECRET,
+    secure=True,
+)
+
+
 def populate_favorites(properties, user_id, db: Session):
     if not user_id:
         return properties
-    
-    # Obtener IDs de favoritos del usuario
+
     fav_ids = set(
         row[0] for row in db.query(Favorite.property_id).filter(Favorite.user_id == user_id).all()
     )
-    
+
     for p in properties:
         p.is_favorite = p.id in fav_ids
     return properties
-
-# Configuración inicial de Azure
-blob_service_client = None
-if settings.AZURE_STORAGE_CONNECTION_STRING:
-    blob_service_client = BlobServiceClient.from_connection_string(
-        settings.AZURE_STORAGE_CONNECTION_STRING)
 
 
 @router.post(
     "/upload_image",
     response_model=ImageUploadResponse,
     summary="Subir imagen de vivienda",
-    response_description="URL pública permanente de la imagen en Azure",
+    response_description="URL pública permanente de la imagen en Cloudinary",
     responses={
-        500: {"description": "Azure Blob Storage no configurado en el servidor"},
-        400: {"description": "Error al subir el archivo a Azure"},
+        400: {"description": "Error al subir el archivo a Cloudinary"},
     },
 )
 def upload_image(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
     """
-    Sube una imagen a Azure Blob Storage con compresión automática y devuelve la URL pública.
+    Sube una imagen a Cloudinary y devuelve la URL pública segura.
 
     Usar este endpoint antes de crear una vivienda para obtener las URLs de las imágenes.
-    El nombre del archivo se reemplaza por un UUID para evitar colisiones.
     """
-    if not blob_service_client or not settings.AZURE_CONTAINER_NAME:
-        raise HTTPException(
-            status_code=500, detail="Falta configurar Azure en el archivo .env")
-
     try:
-        # Generar un nombre de archivo único
-        file_extension = file.filename.split(
-            ".")[-1] if "." in file.filename else "jpg"
-        unique_filename = f"{uuid.uuid4()}.{file_extension}"
-
-        # Obtener el cliente del contenedor y el cliente del blob
-        blob_client = blob_service_client.get_blob_client(
-            container=settings.AZURE_CONTAINER_NAME,
-            blob=unique_filename
-        )
-
-        # Subir el archivo
-        # Importante: Leemos el contenido de UploadFile
         content = file.file.read()
-        blob_client.upload_blob(content, overwrite=True)
-
-        # Construir la URL pública (asumiendo que el contenedor tiene acceso público de lectura)
-        public_url = blob_client.url
-
-        return {"url": public_url}
+        result = cloudinary.uploader.upload(content, resource_type="image", folder="micasita")
+        return {"url": result["secure_url"]}
     except Exception as e:
-        raise HTTPException(
-            status_code=400, detail=f"Error subiendo a Azure: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Error subiendo imagen: {str(e)}")
 
 
 @router.post(

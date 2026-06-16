@@ -7,7 +7,8 @@ pydantic-settings==2.2.1
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.9
-azure-storage-blob==12.19.1
+cloudinary==1.40.0
+resend==2.4.0
 Pillow==10.4.0
 xgboost==2.0.3
 pandas==2.2.2
@@ -15,4 +16,3 @@ scikit-learn==1.4.2
 joblib==1.4.2
 requests==2.31.0
 geoalchemy2==0.15.2
-azure-communication-email==1.0.0
