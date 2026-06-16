@@ -1,12 +1,16 @@
 from fastapi import FastAPI
+from sqlalchemy import text
 from app.core.database import Base, engine
 from app.api import auth, properties, recommend, workplaces, geocode, recommendation_preferences, admin
 
 # Importar todos los modelos para que SQLAlchemy los registre
 from app.models import user, property, workplace, recommendation_history, recommendation_preference
 
-# Creamos las tablas de la base de datos automaticamente si no existen
+# Habilitar PostGIS y crear tablas al arrancar
 print("Sincronizando Base de Datos PostgreSQL...")
+with engine.connect() as conn:
+    conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
+    conn.commit()
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
