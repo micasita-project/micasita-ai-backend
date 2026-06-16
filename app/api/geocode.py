@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Query
 from typing import List, Optional
-from functools import lru_cache
 import requests
 from pydantic import BaseModel
 
@@ -8,6 +7,10 @@ router = APIRouter(prefix="/geocode", tags=["Geocodificacion"])
 
 NOMINATIM_BASE_URL = "https://nominatim.openstreetmap.org"
 HEADERS = {"User-Agent": "MiCasitaApp/1.0 (micasita.pe; contacto@micasita.pe)"}
+
+# Caché manual que solo guarda resultados exitosos (nunca cachea fallos)
+_search_cache: dict = {}
+_reverse_cache: dict = {}
 
 
 class GeocodeSuggestion(BaseModel):
@@ -18,8 +21,10 @@ class GeocodeSuggestion(BaseModel):
     district: Optional[str] = None
 
 
-@lru_cache(maxsize=512)
 def _fetch_search(q: str, limit: int) -> list:
+    key = (q, limit)
+    if key in _search_cache:
+        return _search_cache[key]
     params = {
         "q": q,
         "format": "json",
@@ -32,19 +37,27 @@ def _fetch_search(q: str, limit: int) -> list:
     try:
         response = requests.get(f"{NOMINATIM_BASE_URL}/search", params=params, headers=HEADERS, timeout=5)
         response.raise_for_status()
-        return response.json()
+        result = response.json()
+        if result:
+            _search_cache[key] = result
+        return result
     except Exception as e:
         print(f"Error al consultar Nominatim: {e}")
         return []
 
 
-@lru_cache(maxsize=512)
 def _fetch_reverse(lat: float, lon: float) -> dict:
+    key = (lat, lon)
+    if key in _reverse_cache:
+        return _reverse_cache[key]
     params = {"lat": lat, "lon": lon, "format": "json", "addressdetails": 1}
     try:
         response = requests.get(f"{NOMINATIM_BASE_URL}/reverse", params=params, headers=HEADERS, timeout=5)
         response.raise_for_status()
-        return response.json()
+        result = response.json()
+        if result.get("display_name"):
+            _reverse_cache[key] = result
+        return result
     except Exception as e:
         print(f"Error reverse geocoding: {e}")
         return {}
