@@ -17,6 +17,7 @@ class PropertyBase(BaseModel):
     parking: Optional[int] = None
     antiquity: Optional[int] = None
     description: Optional[str] = None
+    phone: Optional[str] = None
     images: List[str] = []
     features: List[str] = []
     source_url: Optional[str] = None

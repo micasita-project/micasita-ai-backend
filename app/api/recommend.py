@@ -345,16 +345,16 @@ def generate_recommendations(
         user_id=current_user.id
     )
     
-    # Serializar y guardar en historial (INSERT, no UPDATE)
-    serialized = _serialize_results(resultados["results"])
-    history_entry = RecommendationHistory(
-        workplace_id=workplace_id,
-        results=json.dumps(serialized)
-    )
-    db.add(history_entry)
-    db.commit()
-    db.refresh(history_entry)
-    
+    # Solo guardar en historial si hubo resultados
+    if resultados["results"]:
+        serialized = _serialize_results(resultados["results"])
+        history_entry = RecommendationHistory(
+            workplace_id=workplace_id,
+            results=json.dumps(serialized)
+        )
+        db.add(history_entry)
+        db.commit()
+
     return resultados
 
 

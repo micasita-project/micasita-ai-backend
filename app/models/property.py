@@ -30,6 +30,7 @@ class Property(Base):
     antiquity = Column(Integer, nullable=True)
 
     description = Column(Text, nullable=True)
+    phone = Column(String, nullable=True)
 
     # ARRAY es nativo de PostgreSQL, brillante para guardar listas de URLs de Cloudinary
     images = Column(ARRAY(String), default=[])
