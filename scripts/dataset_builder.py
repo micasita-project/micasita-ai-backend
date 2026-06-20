@@ -9,17 +9,24 @@ def get_osrm_profile(mode):
     """Retorna el modo tal cual (ya viene en inglés desde users.json)."""
     return mode.lower()
 
+# OSRM local multi-perfil: una instancia por modo (driving=car, cycling=bike, walking=foot).
+# El perfil real lo define la instancia, no el path. Configurable vía variables de entorno.
+OSRM_BASE_URLS = {
+    "driving": os.getenv("OSRM_DRIVING_URL", "http://localhost:5000/route/v1/driving"),
+    "cycling": os.getenv("OSRM_CYCLING_URL", "http://localhost:5001/route/v1/driving"),
+    "walking": os.getenv("OSRM_WALKING_URL", "http://localhost:5002/route/v1/driving"),
+}
+
 @lru_cache(maxsize=4096)
 def get_route_metrics(lat1, lon1, lat2, lon2, mode):
     profile = get_osrm_profile(mode)
+    base_url = OSRM_BASE_URLS.get(profile, OSRM_BASE_URLS["driving"])
     url = (
-        f"http://router.project-osrm.org/route/v1/{profile}/"
+        f"{base_url}/"
         f"{lon1},{lat1};{lon2},{lat2}?overview=false&steps=false"
     )
 
     try:
-        import time
-        time.sleep(0.05) # Pequeño delay para no saturar API publica
         with request.urlopen(url, timeout=15) as response:
             payload = json.loads(response.read().decode('utf-8'))
 

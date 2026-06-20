@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 import os
 import math
-from geoalchemy2.functions import ST_DWithin
+from geoalchemy2.functions import ST_DWithin, ST_Distance
 import json
 import joblib
 import pandas as pd
@@ -62,14 +62,25 @@ def simulate_commute_time(distance_km, mode):
         
     return (real_dist / speed) * 60
 
+# routing.openstreetmap.de corre una instancia OSRM por perfil (mismo servicio que usa el frontend).
+# El perfil real lo define la instancia (routed-car/bike/foot), no el path (siempre /route/v1/driving).
+# Configurable vía .env; los defaults apuntan al servicio público por perfil.
+OSRM_BASE_URLS = {
+    "driving": os.getenv("OSRM_DRIVING_URL", "https://routing.openstreetmap.de/routed-car/route/v1/driving"),
+    "cycling": os.getenv("OSRM_CYCLING_URL", "https://routing.openstreetmap.de/routed-bike/route/v1/driving"),
+    "walking": os.getenv("OSRM_WALKING_URL", "https://routing.openstreetmap.de/routed-foot/route/v1/driving"),
+}
+
+
 def get_osrm_route(lat1, lon1, lat2, lon2, mode):
     # Ya viene en inglés (driving, walking, cycling)
     profile = mode.lower()
-    
-    # Usamos la API Publica de OSRM
-    url = f"http://router.project-osrm.org/route/v1/{profile}/{lon1},{lat1};{lon2},{lat2}?overview=false"
-    
-    response = requests.get(url, timeout=5) # Mas tiempo para API publica
+
+    # Cada modo usa su propia instancia OSRM con el perfil correcto
+    base_url = OSRM_BASE_URLS.get(profile, OSRM_BASE_URLS["driving"])
+    url = f"{base_url}/{lon1},{lat1};{lon2},{lat2}?overview=false"
+
+    response = requests.get(url, timeout=5)
     response.raise_for_status()
     
     data = response.json()
@@ -112,19 +123,22 @@ def generar_recomendacion(
 
     budget_limit = budget * BUDGET_TOLERANCE
 
-    # PostGIS ST_DWithin: filtro de radio en SQL con índice GIST (distancia geodésica en metros)
+    # PostGIS hace filtro de radio + distancia + orden en una sola consulta indexada (GIST).
+    # ST_Distance sobre geography devuelve metros → lo convertimos a km.
     # casas_en_radio: todas en el radio sin filtro de presupuesto → para calcular min_price_in_area
+    work_wkt = f'SRID=4326;POINT({work_lon} {work_lat})'
+    dist_km_col = (ST_Distance(Property.location, work_wkt) / 1000.0).label("dist_km")
+
+    query = db.query(Property, dist_km_col).filter(
+        Property.status == "approved",
+        Property.location.isnot(None),
+    )
     if max_distance_km is not None:
-        work_wkt = f'SRID=4326;POINT({work_lon} {work_lat})'
-        casas_en_radio = db.query(Property).filter(
-            Property.status == "approved",
-            Property.location.isnot(None),
-            ST_DWithin(Property.location, work_wkt, max_distance_km * 1000)
-        ).all()
-    else:
-        casas_en_radio = db.query(Property).filter(
-            Property.status == "approved"
-        ).all()
+        query = query.filter(ST_DWithin(Property.location, work_wkt, max_distance_km * 1000))
+
+    # Ordenado por distancia ascendente: OSRM procesa primero las más cercanas
+    # y el circuit breaker actúa sobre las más lejanas si hay problemas.
+    casas_en_radio = query.order_by(dist_km_col).all()  # [(Property, dist_km), ...]
 
     if not casas_en_radio:
         if max_distance_km:
@@ -133,27 +147,24 @@ def generar_recomendacion(
             msg = "No hay viviendas disponibles en el sistema."
         return {"results": [], "total": 0, "message": msg, "min_price_in_area": None}
 
-    # casas_candidatas: en radio Y dentro del presupuesto → las que evalúa XGBoost
-    # Haversine aquí solo para ordenar por distancia, no para filtrar
+    # casas_candidatas: en radio Y dentro del presupuesto → las que evalúa XGBoost.
+    # La distancia (dist_km) ya viene calculada y ordenada desde PostGIS.
     casas_candidatas = []
-    for c in casas_en_radio:
+    for c, dist_km in casas_en_radio:
         if not c.price:
             continue
-        straight_dist = haversine(work_lat, work_lon, c.latitude, c.longitude)
         if _to_pen(c.price, c.currency) <= budget_limit:
-            casas_candidatas.append((straight_dist, c))
+            casas_candidatas.append((dist_km, c))
 
     if not casas_candidatas:
-        min_price = round(min(_to_pen(c.price, c.currency) for c in casas_en_radio), 2)
+        min_price = round(min(_to_pen(c.price, c.currency) for c, _ in casas_en_radio), 2)
         return {
             "results": [], "total": 0,
             "message": f"Ninguna vivienda en esta zona entra en tu presupuesto. Las más económicas parten desde S/ {min_price:,.0f}.",
             "min_price_in_area": min_price,
         }
 
-    # Ordenar por distancia para que OSRM procese primero las más cercanas
-    # y el circuit breaker actúe sobre las más lejanas si hay problemas
-    casas_candidatas.sort(key=lambda x: x[0])
+    # (Ya vienen ordenadas por distancia desde la consulta PostGIS)
 
     # Armar DataFrame con pandas exactamente como el dataset de entrenamiento
     datos_dict = []
