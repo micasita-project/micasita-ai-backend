@@ -16,3 +16,7 @@ scikit-learn==1.4.2
 joblib==1.4.2
 requests==2.31.0
 geoalchemy2==0.15.2
+
+# Testing
+pytest>=7.4
+httpx>=0.27
