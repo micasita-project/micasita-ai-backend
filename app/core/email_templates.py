@@ -111,6 +111,39 @@ def get_block_notification_template(user_name: str, is_active: bool):
     
     return get_base_template(message)
 
+def get_otp_template(purpose: str, code: str, name: str = None):
+    greeting = f"¡Hola {name}!" if name else "¡Hola!"
+
+    if purpose == "verify_email":
+        title = "Verifica tu correo electrónico"
+        body = f"""
+            <h2>{greeting}</h2>
+            <p>Gracias por registrarte en <strong>MiCasita</strong>. Para activar tu cuenta ingresa el siguiente código de verificación en la aplicación:</p>
+            <div style="text-align:center; margin: 30px 0;">
+                <span style="font-size:40px; font-weight:bold; letter-spacing:10px; color:#34216b;">{code}</span>
+            </div>
+            <p style="color:#6b6b80; font-size:13px;">Este código expira en <strong>24 horas</strong>. Si no creaste esta cuenta puedes ignorar este mensaje.</p>
+        """
+    else:
+        title = "Restablecer contraseña"
+        body = f"""
+            <h2>{greeting}</h2>
+            <p>Recibimos una solicitud para restablecer la contraseña de tu cuenta en <strong>MiCasita</strong>. Usa el siguiente código en la aplicación:</p>
+            <div style="text-align:center; margin: 30px 0;">
+                <span style="font-size:40px; font-weight:bold; letter-spacing:10px; color:#34216b;">{code}</span>
+            </div>
+            <p style="color:#6b6b80; font-size:13px;">Este código expira en <strong>15 minutos</strong>. Si no solicitaste este cambio puedes ignorar este mensaje.</p>
+        """
+
+    content = f"""
+        <div style="text-align:center; margin-bottom:24px;">
+            <span style="font-size:14px; font-weight:600; color:#34216b; text-transform:uppercase; letter-spacing:1px;">{title}</span>
+        </div>
+        {body}
+    """
+    return get_base_template(content)
+
+
 def get_property_status_template(user_name: str, property_title: str, status: str, reason: str = None):
     status_title = "Aprobada" if status == "approved" else "Rechazada"
     status_class = "status-success" if status == "approved" else "status-error"

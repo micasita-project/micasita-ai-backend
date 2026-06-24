@@ -10,6 +10,7 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     role = Column(String, default="user") # 'admin' o 'user'
     is_active = Column(Boolean, default=True)
+    email_verified = Column(Boolean, default=True)  # True for existing users; new registrations start False
     
     name = Column(String(100), nullable=True)
     last_name = Column(String(100), nullable=True)

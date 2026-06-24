@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 
 # 1. Esquemas de Creación/Registro
@@ -14,6 +14,7 @@ class UserResponse(BaseModel):
     email: EmailStr
     role: str
     is_active: bool
+    email_verified: bool
     name: Optional[str] = None
     last_name: Optional[str] = None
     home_lat: Optional[float] = None
@@ -37,10 +38,30 @@ class UserHomeUpdate(BaseModel):
     home_lon: float
     home_address: str
 
-# 4. JWT Token
+# 5. JWT Token
 class Token(BaseModel):
     access_token: str
     token_type: str
 
 class TokenData(BaseModel):
     email: Optional[str] = None
+
+# 6. Auth OTP flows
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    otp: str
+    new_password: str = Field(min_length=8)
+
+class VerifyEmailRequest(BaseModel):
+    email: EmailStr
+    otp: str
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8)

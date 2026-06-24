@@ -16,9 +16,9 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: str
     CLOUDINARY_API_SECRET: str
 
-    # Resend
-    RESEND_API_KEY: str
-    RESEND_EMAIL_SENDER: str
+    # SendGrid (email transaccional)
+    SENDGRID_API_KEY: str
+    SENDGRID_EMAIL_SENDER: str
 
     model_config = {
         "env_file": ".env",
