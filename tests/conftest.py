@@ -17,13 +17,14 @@ os.environ.setdefault("RESEND_EMAIL_SENDER", "test@test.com")
 
 # ── Helpers para crear instancias de modelos sin sesión de DB real ────────────
 
-def make_user(id=1, email="user@test.com", role="user", is_active=True):
+def make_user(id=1, email="user@test.com", role="user", is_active=True, email_verified=True):
     from app.models.user import User
     u = User()
     u.id = id
     u.email = email
     u.role = role
     u.is_active = is_active
+    u.email_verified = email_verified
     u.name = "Test"
     u.last_name = "User"
     u.home_lat = None

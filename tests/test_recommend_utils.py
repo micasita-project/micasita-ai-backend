@@ -10,7 +10,7 @@ import pytest
 import requests as requests_lib
 from unittest.mock import patch, MagicMock
 
-from app.api.recommend import (
+from app.services.recommendation_service import (
     haversine,
     simulate_commute_time,
     _to_pen,
@@ -120,50 +120,50 @@ def _mock_osrm_ok(distance_m: float, duration_s: float) -> MagicMock:
 
 
 class TestGetOsrmRoute:
-    @patch("app.api.recommend.requests.get")
+    @patch("app.services.recommendation_service.requests.get")
     def test_retorna_distancia_y_tiempo_correctos(self, mock_get):
         mock_get.return_value = _mock_osrm_ok(5000, 600)  # 5 km, 10 min
         dist, tiempo = get_osrm_route(-12.046, -77.042, -12.120, -77.030, "driving")
         assert dist == pytest.approx(5.0, rel=1e-3)
         assert tiempo == pytest.approx(10.0, rel=1e-3)
 
-    @patch("app.api.recommend.requests.get")
+    @patch("app.services.recommendation_service.requests.get")
     def test_driving_llama_routed_car(self, mock_get):
         mock_get.return_value = _mock_osrm_ok(5000, 600)
         get_osrm_route(-12.046, -77.042, -12.120, -77.030, "driving")
         assert "routed-car" in mock_get.call_args[0][0]
 
-    @patch("app.api.recommend.requests.get")
+    @patch("app.services.recommendation_service.requests.get")
     def test_cycling_llama_routed_bike(self, mock_get):
         mock_get.return_value = _mock_osrm_ok(3000, 900)
         get_osrm_route(-12.046, -77.042, -12.120, -77.030, "cycling")
         assert "routed-bike" in mock_get.call_args[0][0]
 
-    @patch("app.api.recommend.requests.get")
+    @patch("app.services.recommendation_service.requests.get")
     def test_walking_llama_routed_foot(self, mock_get):
         mock_get.return_value = _mock_osrm_ok(2000, 1800)
         get_osrm_route(-12.046, -77.042, -12.120, -77.030, "walking")
         assert "routed-foot" in mock_get.call_args[0][0]
 
-    @patch("app.api.recommend.requests.get")
+    @patch("app.services.recommendation_service.requests.get")
     def test_lanza_value_error_sin_rutas(self, mock_get):
         mock_get.return_value.json.return_value = {"code": "Ok", "routes": []}
         with pytest.raises(ValueError, match="No route found"):
             get_osrm_route(-12.046, -77.042, -12.120, -77.030, "driving")
 
-    @patch("app.api.recommend.requests.get")
+    @patch("app.services.recommendation_service.requests.get")
     def test_lanza_value_error_cuando_code_no_es_ok(self, mock_get):
         mock_get.return_value.json.return_value = {"code": "NoSegment", "routes": []}
         with pytest.raises(ValueError, match="No route found"):
             get_osrm_route(-12.046, -77.042, -12.120, -77.030, "driving")
 
-    @patch("app.api.recommend.requests.get")
+    @patch("app.services.recommendation_service.requests.get")
     def test_propaga_http_error(self, mock_get):
         mock_get.return_value.raise_for_status.side_effect = requests_lib.HTTPError("503")
         with pytest.raises(requests_lib.HTTPError):
             get_osrm_route(-12.046, -77.042, -12.120, -77.030, "driving")
 
-    @patch("app.api.recommend.requests.get")
+    @patch("app.services.recommendation_service.requests.get")
     def test_coordenadas_van_en_orden_lon_lat(self, mock_get):
         mock_get.return_value = _mock_osrm_ok(1000, 120)
         get_osrm_route(-12.046, -77.042, -12.120, -77.030, "driving")

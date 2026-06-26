@@ -8,7 +8,7 @@ No se conecta a la base de datos real ni a OSRM.
 import pytest
 from unittest.mock import patch, MagicMock
 
-from app.api.recommend import generar_recomendacion, _serialize_results
+from app.services.recommendation_service import generar_recomendacion, _serialize_results
 
 # Mismas columnas que genera el pipeline de entrenamiento
 MODEL_COLUMNS = [
@@ -94,11 +94,10 @@ class TestGenararRecomendacionSinResultados:
         p = _make_property(1, price=1100.0)
         with (
             patch("time.sleep"),
-            patch("app.api.recommend.model_columns", MODEL_COLUMNS),
-            patch("app.api.recommend.recommender") as mock_rec,
-            patch("app.api.recommend.get_osrm_route", return_value=(3.0, 15.0)),
+            patch("app.services.recommendation_service.predictor") as mock_pred,
+            patch("app.services.recommendation_service.get_osrm_route", return_value=(3.0, 15.0)),
         ):
-            mock_rec.predict.return_value = [70.0]
+            mock_pred.predict_scores.return_value = [70.0]
             db = _make_db(rows_no_radius=[(p, 3.0)])
             result = generar_recomendacion(-12.046, -77.042, 1000, "driving", db)
         assert result["total"] == 1
@@ -108,14 +107,13 @@ class TestGenararRecomendacionSinResultados:
 
 class TestGenararRecomendacionFlujoNormal:
     @patch("time.sleep")
-    @patch("app.api.recommend.model_columns", MODEL_COLUMNS)
-    @patch("app.api.recommend.recommender")
-    @patch("app.api.recommend.get_osrm_route")
+    @patch("app.services.recommendation_service.predictor")
+    @patch("app.services.recommendation_service.get_osrm_route")
     def test_resultados_ordenados_por_score_descendente(
-        self, mock_osrm, mock_rec, mock_sleep
+        self, mock_osrm, mock_pred, mock_sleep
     ):
         mock_osrm.return_value = (5.0, 20.0)
-        mock_rec.predict.return_value = [60.0, 80.0, 40.0]
+        mock_pred.predict_scores.return_value = [60.0, 80.0, 40.0]
 
         props = [
             _make_property(1, 1200.0),
@@ -132,12 +130,11 @@ class TestGenararRecomendacionFlujoNormal:
         assert scores == sorted(scores, reverse=True)
 
     @patch("time.sleep")
-    @patch("app.api.recommend.model_columns", MODEL_COLUMNS)
-    @patch("app.api.recommend.recommender")
-    @patch("app.api.recommend.get_osrm_route")
-    def test_scores_acotados_entre_0_y_100(self, mock_osrm, mock_rec, mock_sleep):
+    @patch("app.services.recommendation_service.predictor")
+    @patch("app.services.recommendation_service.get_osrm_route")
+    def test_scores_acotados_entre_0_y_100(self, mock_osrm, mock_pred, mock_sleep):
         mock_osrm.return_value = (5.0, 20.0)
-        mock_rec.predict.return_value = [150.0, -20.0]  # fuera de rango
+        mock_pred.predict_scores.return_value = [150.0, -20.0]  # fuera de rango
 
         props = [
             _make_property(1, 1200.0),
@@ -151,12 +148,11 @@ class TestGenararRecomendacionFlujoNormal:
             assert 0 <= r["match_score"] <= 100
 
     @patch("time.sleep")
-    @patch("app.api.recommend.model_columns", MODEL_COLUMNS)
-    @patch("app.api.recommend.recommender")
-    @patch("app.api.recommend.get_osrm_route")
-    def test_time_saved_es_none_sin_casa_actual(self, mock_osrm, mock_rec, mock_sleep):
+    @patch("app.services.recommendation_service.predictor")
+    @patch("app.services.recommendation_service.get_osrm_route")
+    def test_time_saved_es_none_sin_casa_actual(self, mock_osrm, mock_pred, mock_sleep):
         mock_osrm.return_value = (5.0, 20.0)
-        mock_rec.predict.return_value = [70.0]
+        mock_pred.predict_scores.return_value = [70.0]
 
         db = _make_db(rows_no_radius=[(_make_property(1, 1200.0), 5.0)])
         result = generar_recomendacion(-12.046, -77.042, 2000, "driving", db)
@@ -165,13 +161,12 @@ class TestGenararRecomendacionFlujoNormal:
         assert result["results"][0]["time_saved_mins"] is None
 
     @patch("time.sleep")
-    @patch("app.api.recommend.model_columns", MODEL_COLUMNS)
-    @patch("app.api.recommend.recommender")
-    @patch("app.api.recommend.get_osrm_route")
-    def test_time_saved_calculado_con_casa_actual(self, mock_osrm, mock_rec, mock_sleep):
+    @patch("app.services.recommendation_service.predictor")
+    @patch("app.services.recommendation_service.get_osrm_route")
+    def test_time_saved_calculado_con_casa_actual(self, mock_osrm, mock_pred, mock_sleep):
         # Primera llamada (commute actual): 40 min; segunda (vivienda candidata): 20 min
         mock_osrm.side_effect = [(0.0, 40.0), (5.0, 20.0)]
-        mock_rec.predict.return_value = [70.0]
+        mock_pred.predict_scores.return_value = [70.0]
 
         db = _make_db(rows_no_radius=[(_make_property(1, 1200.0), 5.0)])
         result = generar_recomendacion(
@@ -186,14 +181,13 @@ class TestGenararRecomendacionFlujoNormal:
 
 class TestFallbackHaversine:
     @patch("time.sleep")
-    @patch("app.api.recommend.model_columns", MODEL_COLUMNS)
-    @patch("app.api.recommend.recommender")
-    @patch("app.api.recommend.get_osrm_route")
+    @patch("app.services.recommendation_service.predictor")
+    @patch("app.services.recommendation_service.get_osrm_route")
     def test_osrm_falla_usa_haversine_y_devuelve_resultado(
-        self, mock_osrm, mock_rec, mock_sleep
+        self, mock_osrm, mock_pred, mock_sleep
     ):
         mock_osrm.side_effect = Exception("Timeout: OSRM unreachable")
-        mock_rec.predict.return_value = [70.0]
+        mock_pred.predict_scores.return_value = [70.0]
 
         db = _make_db(rows_no_radius=[(_make_property(1, 1200.0), 5.0)])
         result = generar_recomendacion(-12.046, -77.042, 2000, "driving", db)
@@ -208,11 +202,10 @@ class TestFallbackHaversine:
 
 class TestCircuitBreaker:
     @patch("time.sleep")
-    @patch("app.api.recommend.model_columns", MODEL_COLUMNS)
-    @patch("app.api.recommend.recommender")
-    @patch("app.api.recommend.get_osrm_route")
+    @patch("app.services.recommendation_service.predictor")
+    @patch("app.services.recommendation_service.get_osrm_route")
     def test_deja_de_llamar_osrm_despues_de_5_fallos(
-        self, mock_osrm, mock_rec, mock_sleep
+        self, mock_osrm, mock_pred, mock_sleep
     ):
         call_count = [0]
 
@@ -221,7 +214,7 @@ class TestCircuitBreaker:
             raise Exception("Timeout: OSRM unreachable")
 
         mock_osrm.side_effect = osrm_timeout
-        mock_rec.predict.return_value = [70.0] * 8
+        mock_pred.predict_scores.return_value = [70.0] * 8
 
         props = [
             _make_property(i, 1200.0, lat=-12.046 - i * 0.01, lon=-77.042)

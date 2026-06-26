@@ -22,9 +22,13 @@ class OTPStore:
 
     def generate(self, key: str) -> str:
         code = str(secrets.randbelow(1_000_000)).zfill(6)
-        expires_at = datetime.utcnow() + timedelta(seconds=self.expiry)
+        now = datetime.utcnow()
+        expires_at = now + timedelta(seconds=self.expiry)
         db = SessionLocal()
         try:
+            # Limpieza oportunista: borra todos los OTP vencidos (de cualquier
+            # email/propósito) para que la tabla no se acumule con el tiempo.
+            db.query(OtpCode).filter(OtpCode.expires_at < now).delete(synchronize_session=False)
             # Sustituye cualquier OTP previo del mismo propósito para este email
             db.query(OtpCode).filter(
                 OtpCode.email == key,
@@ -78,6 +82,23 @@ class OTPStore:
             return True
         finally:
             db.close()
+
+
+def purge_expired_otps() -> int:
+    """Elimina todos los OTP vencidos. Devuelve cuántas filas se borraron.
+
+    Se ejecuta al arrancar la app (además de la limpieza oportunista en
+    cada `generate`), cubriendo el caso en que el servicio estuvo inactivo.
+    """
+    db = SessionLocal()
+    try:
+        deleted = db.query(OtpCode).filter(
+            OtpCode.expires_at < datetime.utcnow()
+        ).delete(synchronize_session=False)
+        db.commit()
+        return deleted
+    finally:
+        db.close()
 
 
 # 15 min para reset de contraseña, 24 h para verificación de correo

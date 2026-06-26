@@ -13,6 +13,15 @@ with engine.connect() as conn:
     conn.commit()
 Base.metadata.create_all(bind=engine)
 
+# Limpieza de OTP vencidos al arrancar (cubre periodos de inactividad)
+from app.core.otp import purge_expired_otps
+try:
+    purgados = purge_expired_otps()
+    if purgados:
+        print(f"OTP vencidos purgados al inicio: {purgados}")
+except Exception as e:
+    print(f"No se pudo purgar OTP al inicio: {e}")
+
 app = FastAPI(
     title="Micasita AI-Backend API",
     description="Backend oficial con PostgreSQL, Autenticacion y Machine Learning para Micasita",
