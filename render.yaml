@@ -23,9 +23,9 @@ services:
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
-      - key: RESEND_API_KEY
+      - key: SENDGRID_API_KEY
         sync: false
-      - key: RESEND_EMAIL_SENDER
+      - key: SENDGRID_EMAIL_SENDER
         sync: false
       - key: USD_TO_PEN
         sync: false
