@@ -15,6 +15,19 @@ from app.services.recommendation_service import generar_recomendacion, _serializ
 router = APIRouter(prefix="/recommend", tags=["IA Recomendaciones"])
 
 
+def _parse_stored_history(raw: str):
+    """
+    Parsea el JSON guardado en el historial. Soporta dos formatos:
+    - Antiguo: lista de resultados (sin mensaje).
+    - Nuevo: dict {results, message, min_price_in_area}.
+    Devuelve (results, message, min_price_in_area).
+    """
+    data = json.loads(raw)
+    if isinstance(data, list):
+        return data, None, None
+    return data.get("results", []), data.get("message"), data.get("min_price_in_area")
+
+
 # ── Endpoints ────────────────────────────────────────────────────
 
 @router.post(
@@ -84,15 +97,21 @@ def generate_recommendations(
         user_id=current_user.id
     )
     
-    # Solo guardar en historial si hubo resultados
-    if resultados["results"]:
-        serialized = _serialize_results(resultados["results"])
-        history_entry = RecommendationHistory(
-            workplace_id=workplace_id,
-            results=json.dumps(serialized)
-        )
-        db.add(history_entry)
-        db.commit()
+    # Guardar SIEMPRE el resultado actual (incluso vacío) para que /latest
+    # refleje las preferencias vigentes. Si una nueva preferencia (radio,
+    # presupuesto, ubicación) deja la búsqueda sin resultados, el caché debe
+    # reflejarlo en vez de quedarse con la recomendación anterior obsoleta.
+    serialized = _serialize_results(resultados["results"])
+    history_entry = RecommendationHistory(
+        workplace_id=workplace_id,
+        results=json.dumps({
+            "results": serialized,
+            "message": resultados["message"],
+            "min_price_in_area": resultados["min_price_in_area"],
+        }),
+    )
+    db.add(history_entry)
+    db.commit()
 
     return resultados
 
@@ -129,14 +148,14 @@ def get_latest_recommendations(
     if not latest:
         raise HTTPException(status_code=404, detail="No hay recomendaciones guardadas. Genera una primero.")
     
-    results = json.loads(latest.results)
-    
+    results, message, min_price = _parse_stored_history(latest.results)
+
     # Actualizar is_favorite ya que el cache puede estar viejo
     fav_ids = set(row[0] for row in db.query(Favorite.property_id).filter(Favorite.user_id == current_user.id).all())
     for r in results:
         r["property"]["is_favorite"] = r["property"]["id"] in fav_ids
 
-    return {"results": results, "total": len(results), "message": None, "min_price_in_area": None}
+    return {"results": results, "total": len(results), "message": message, "min_price_in_area": min_price}
 
 
 @router.get(
@@ -164,7 +183,7 @@ def get_recommendation_history(
         {
             "id": h.id,
             "workplace_id": h.workplace_id,
-            "results": json.loads(h.results),
+            "results": _parse_stored_history(h.results)[0],
             "created_at": h.created_at,
         }
         for h in history

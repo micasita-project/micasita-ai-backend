@@ -69,14 +69,17 @@ class TestGenerateRecommendations:
     @patch("app.api.recommend.generar_recomendacion", return_value={
         "results": [], "total": 0, "message": "Sin resultados", "min_price_in_area": None,
     })
-    def test_sin_resultados_no_guarda_historial(self, mock_gen, client, mock_db):
+    def test_sin_resultados_tambien_guarda_historial(self, mock_gen, client, mock_db):
+        # Aunque no haya resultados, se guarda en historial para que /latest
+        # refleje las preferencias vigentes (no quedarse con data obsoleta).
         work = make_workplace()
         pref = make_pref()
         self._setup_generate(mock_db, workplace=work, pref=pref)
 
         resp = client.post("/recommend/workplaces/1/generate")
         assert resp.status_code == 200
-        mock_db.add.assert_not_called()
+        assert resp.json()["total"] == 0
+        mock_db.add.assert_called_once()
 
     def test_workplace_no_encontrado_retorna_404(self, client, mock_db):
         mock_db.query.return_value.filter.return_value.first.return_value = None
