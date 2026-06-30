@@ -3,7 +3,7 @@
     "id": "U1_Estudiante",
     "budget": 1200,
     "work_lat": -12.103865110784648,
-    "work_lon": -76.96269264017872, 
+    "work_lon": -76.96269264017872,
     "work_location": "Av. Primavera 2390, Santiago de Surco 15023",
     "preferred_transport": "cycling",
     "size_matters": false
@@ -56,7 +56,7 @@
   {
     "id": "U7_ProfesionalJoven",
     "budget": 2600,
-    "work_lat": -12.145254097769863, 
+    "work_lat": -12.145254097769863,
     "work_lon": -77.02169167221687,
     "work_location": "Av. Almte. Miguel Grau 629, Barranco 15063",
     "preferred_transport": "walking",
@@ -74,7 +74,7 @@
   {
     "id": "U9_Docente",
     "budget": 1400,
-    "work_lat": -12.077757135295514, 
+    "work_lat": -12.077757135295514,
     "work_lon": -77.03956899653143,
     "work_location": "Hospital Nacional Edgardo Rebagliati, Jesús María",
     "preferred_transport": "driving",
@@ -83,10 +83,82 @@
   {
     "id": "U10_Teletrabajador",
     "budget": 2000,
-    "work_lat": -12.091851449239867, 
+    "work_lat": -12.091851449239867,
     "work_lon": -77.05639510878201,
     "work_location": "Tomás Ramsey 930, Magdalena del Mar 15076",
     "preferred_transport": "cycling",
     "size_matters": true
+  },
+  {
+    "id": "U11_AdministrativoCycling",
+    "budget": 900,
+    "work_lat": -12.08571284460995, 
+    "work_lon": -77.0537924269131,
+    "work_location": "Clínica San Felipe, Jesús María",
+    "preferred_transport": "cycling",
+    "size_matters": false
+  },
+  {
+    "id": "U12_VendedorCycling",
+    "budget": 750,
+    "work_lat": -12.076555181568965, 
+    "work_lon": -77.09454331168627,
+    "work_location": "Mercado San Miguel, San Miguel",
+    "preferred_transport": "cycling",
+    "size_matters": false
+  },
+  {
+    "id": "U13_TecnicoCycling",
+    "budget": 1000,
+    "work_lat": -12.081163831978925, 
+    "work_lon": -77.07207395063486,
+    "work_location": "Av. La Marina 10, Pueblo Libre",
+    "preferred_transport": "cycling",
+    "size_matters": false
+  },
+  {
+    "id": "U14_ContadorCycling",
+    "budget": 850,
+    "work_lat": -12.084280320539039, 
+    "work_lon": -76.97127994692097,
+    "work_location": "Universidad de Lima, La Molina",
+    "preferred_transport": "cycling",
+    "size_matters": false
+  },
+  {
+    "id": "U15_AsistenteWalking",
+    "budget": 850,
+    "work_lat": -12.078048500818541, 
+    "work_lon": -77.03675944618969,
+    "work_location": "Av. Arenales 1302, Jesús María",
+    "preferred_transport": "walking",
+    "size_matters": false
+  },
+  {
+    "id": "U16_TecnicoWalking",
+    "budget": 1100,
+    "work_lat": -12.09598489120185, 
+    "work_lon": -77.07090104618946,
+    "work_location": "Av. Brasil 4031, Magdalena del Mar",
+    "preferred_transport": "walking",
+    "size_matters": false
+  },
+  {
+    "id": "U17_VendedorDriving",
+    "budget": 800,
+    "work_lat": -12.053054441965633, 
+    "work_lon": -77.09805083084541,
+    "work_location": "Av. Faucett 123, Callao",
+    "preferred_transport": "driving",
+    "size_matters": false
+  },
+  {
+    "id": "U18_ChoferDriving",
+    "budget": 950,
+    "work_lat": -12.071128475695254, 
+    "work_lon": -77.05082425868623,
+    "work_location": "Av. Brasil 1200, Breña",
+    "preferred_transport": "driving",
+    "size_matters": false
   }
 ]

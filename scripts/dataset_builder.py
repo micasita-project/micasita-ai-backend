@@ -106,11 +106,12 @@ def build_dataset(viviendas_path, usuarios_path, output_csv_path):
         score += random.uniform(-10, 10)
         score = max(0, min(100, round(score)))
         
+        precio_ratio = precio / u['budget'] if u['budget'] > 0 else 1.0
+
         return {
             'vivienda_id': v['id'],
-            'precio_alquiler': precio,
+            'precio_ratio': round(precio_ratio, 4),
             'area_m2': area,
-            'presupuesto_usuario': u['budget'],
             'modo_transporte': english_mode,
             'distancia_km_simulada': dist_km,
             'tiempo_viaje_min': tiempo_viaje,

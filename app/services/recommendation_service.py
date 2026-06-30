@@ -180,10 +180,12 @@ def generar_recomendacion(
             dist_km = straight_dist
             tiempo = simulate_commute_time(dist_km, mode)
 
+        precio_pen = _to_pen(c.price, c.currency)
+        precio_ratio = precio_pen / budget if budget > 0 else 1.0
+
         datos_dict.append({
-            "precio_alquiler": _to_pen(c.price, c.currency),
+            "precio_ratio": round(precio_ratio, 4),
             "area_m2": float(c.total_area_sqm),
-            "presupuesto_usuario": float(budget),
             "distancia_km_simulada": dist_km,
             "tiempo_viaje_min": tiempo,
             "modo_transporte": mode_english
