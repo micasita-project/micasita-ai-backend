@@ -109,7 +109,7 @@ def build_dataset(viviendas_path, usuarios_path, output_csv_path):
         else:
             score -= 30
             
-        score += random.uniform(-10, 10)
+        score += random.uniform(-3, 3)
         score = max(0, min(100, round(score)))
         
         precio_ratio = precio / u['budget'] if u['budget'] > 0 else 1.0
