@@ -12,7 +12,7 @@ def get_osrm_profile(mode):
 # OSRM local multi-perfil: una instancia por modo (driving=car, cycling=bike, walking=foot).
 # El perfil real lo define la instancia, no el path. Configurable vía variables de entorno.
 OSRM_BASE_URLS = {
-    "driving": os.getenv("OSRM_DRIVING_URL", "http://localhost:5000/route/v1/driving"),
+    "driving": os.getenv("OSRM_DRIVING_URL", "http://localhost:5003/route/v1/driving"),
     "cycling": os.getenv("OSRM_CYCLING_URL", "http://localhost:5001/route/v1/driving"),
     "walking": os.getenv("OSRM_WALKING_URL", "http://localhost:5002/route/v1/driving"),
 }
