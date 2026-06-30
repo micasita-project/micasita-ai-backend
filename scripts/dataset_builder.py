@@ -94,14 +94,14 @@ def build_dataset(viviendas_path, usuarios_path, output_csv_path):
             score -= 40
         else:
             ahorro = u['budget'] - precio
-            score += (ahorro / u['budget']) * 5
+            score += (ahorro / u['budget']) * 10
 
         if tiempo_viaje <= 5:
             score += 40
         elif tiempo_viaje <= 10:
-            score += 30
+            score += 35
         elif tiempo_viaje <= 15:
-            score += 20
+            score += 25
         elif tiempo_viaje <= 25:
             score += 5
         elif tiempo_viaje <= 45:
