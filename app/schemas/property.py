@@ -51,8 +51,8 @@ class PropertyStatusUpdate(BaseModel):
 
 class PropertyResponse(PropertyBase):
     id: int
-    publisher_id: int
-    status: str
+    publisher_id: Optional[int] = None
+    status: Optional[str] = None
     rejection_reason: Optional[str] = None
     is_favorite: bool = False
 
