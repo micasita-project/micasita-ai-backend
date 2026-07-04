@@ -89,28 +89,44 @@ def build_dataset(viviendas_path, usuarios_path, output_csv_path):
             dist_km = 6371.0 * c
             tiempo_viaje = (dist_km * 1.4 / (4.5 if 'walk' in english_mode else 12.0 if 'cycl' in english_mode else 15.0)) * 60
 
-        score = 50.0
-        if precio > u['budget']:
-            score -= 40
-        else:
-            ahorro = u['budget'] - precio
-            score += (ahorro / u['budget']) * 10
+        score = 40.0
 
-        if tiempo_viaje <= 5:
-            score += 40
-        elif tiempo_viaje <= 10:
-            score += 35
-        elif tiempo_viaje <= 15:
-            score += 25
-        elif tiempo_viaje <= 25:
-            score += 5
-        elif tiempo_viaje <= 45:
-            score -= 10
+        # 1. TIEMPO DE VIAJE — factor principal (hasta +45 pts)
+        # Curva lineal continua: 0 min → +45, 45 min → 0, >45 penaliza.
+        if tiempo_viaje <= 45:
+            score += 45 * (1 - tiempo_viaje / 45)
         else:
-            score -= 30
-            
-        score += random.uniform(-3, 3)
-        score = max(0, min(100, round(score)))
+            score -= min(20, ((tiempo_viaje - 45) / 15) * 10)
+
+        # 2. DISTANCIA AL TRABAJO — complementario al tiempo (hasta +3 pts)
+        if dist_km <= 2:
+            score += 3
+        elif dist_km <= 5:
+            score += 1
+        elif dist_km <= 15:
+            pass
+        else:
+            score -= 3
+
+        # 3. PRESUPUESTO — curva suave sin acantilado (hasta +20 pts)
+        ratio = precio / u['budget'] if u['budget'] > 0 else 2.0
+        if ratio <= 1.0:
+            score += (1 - ratio) * 20
+        else:
+            score -= min(35, (ratio - 1) * 60)
+
+        # 4. ÁREA — ajuste menor (hasta +5 pts)
+        if area >= 40:
+            score += 5
+        elif area >= 25:
+            score += 3
+        elif area >= 15:
+            score += 1
+        elif 0 < area < 15:
+            score -= 2
+
+        score += random.uniform(-2, 2)
+        score = max(0, min(100, score))
         
         precio_ratio = precio / u['budget'] if u['budget'] > 0 else 1.0
 
