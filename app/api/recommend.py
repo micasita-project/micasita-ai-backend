@@ -116,6 +116,49 @@ def generate_recommendations(
     return resultados
 
 
+@router.post(
+    "/workplaces/{workplace_id}/import-results",
+    response_model=RecommendationPageResponse,
+    summary="Importar resultados de invitado (sin ejecutar IA)",
+    response_description="Guarda recomendaciones ya calculadas en el historial del usuario autenticado",
+)
+def import_guest_results(
+    workplace_id: int,
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Importa resultados pre-calculados (p.ej. del modo invitado) al historial
+    sin volver a ejecutar XGBoost. Útil al migrar datos de guest → cuenta real.
+    """
+    work = db.query(Workplace).filter(
+        Workplace.id == workplace_id,
+        Workplace.user_id == current_user.id,
+    ).first()
+    if not work:
+        raise HTTPException(status_code=404, detail="Lugar de trabajo no encontrado")
+
+    history_entry = RecommendationHistory(
+        workplace_id=workplace_id,
+        results=json.dumps({
+            "results": payload.get("results", []),
+            "message": payload.get("message"),
+            "min_price_in_area": payload.get("min_price_in_area"),
+        }),
+    )
+    db.add(history_entry)
+    db.commit()
+
+    results = payload.get("results", [])
+    return {
+        "results": results,
+        "total": len(results),
+        "message": payload.get("message"),
+        "min_price_in_area": payload.get("min_price_in_area"),
+    }
+
+
 @router.get(
     "/workplaces/{workplace_id}/latest",
     response_model=RecommendationPageResponse,
