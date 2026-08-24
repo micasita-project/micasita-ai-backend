@@ -14,11 +14,16 @@ class OTPStore:
     consistentes entre múltiples instancias (a diferencia del almacén en
     memoria anterior). Gestiona su propia sesión de BD porque algunos
     `generate()` se ejecutan dentro de BackgroundTasks (fuera del request).
+
+    `max_attempts` limita la fuerza bruta sobre el código de 6 dígitos: sin
+    esto, un atacante tiene toda la ventana de validez (15 min o 24 h) para
+    probar el espacio completo de 10⁶ combinaciones sin ninguna fricción.
     """
 
-    def __init__(self, purpose: str, expiry_seconds: int):
+    def __init__(self, purpose: str, expiry_seconds: int, max_attempts: int = 5):
         self.purpose = purpose
         self.expiry = expiry_seconds
+        self.max_attempts = max_attempts
 
     def generate(self, key: str) -> str:
         code = str(secrets.randbelow(1_000_000)).zfill(6)
@@ -58,7 +63,15 @@ class OTPStore:
                 db.delete(entry)
                 db.commit()
                 return False
+            if entry.attempts >= self.max_attempts:
+                # Se agotaron los intentos: se invalida el código para forzar
+                # un reenvío en vez de dejarlo abierto indefinidamente.
+                db.delete(entry)
+                db.commit()
+                return False
             if entry.code != code:
+                entry.attempts += 1
+                db.commit()
                 return False
             db.delete(entry)  # un solo uso
             db.commit()

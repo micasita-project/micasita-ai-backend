@@ -5,11 +5,12 @@ import json
 from app.core.database import get_db
 from app.models.user import User
 from app.models.workplace import Workplace
+from app.models.property import Property
 from app.models.recommendation_preference import RecommendationPreference
 from app.models.recommendation_history import RecommendationHistory
 from app.models.favorite import Favorite
 from app.core.security import get_current_user, get_current_user_optional
-from app.schemas.recommend import RecommendationPageResponse, GuestRecommendRequest
+from app.schemas.recommend import RecommendationPageResponse, GuestRecommendRequest, ImportResultsRequest
 from app.services.recommendation_service import generar_recomendacion, _serialize_results
 
 router = APIRouter(prefix="/recommend", tags=["IA Recomendaciones"])
@@ -124,13 +125,19 @@ def generate_recommendations(
 )
 def import_guest_results(
     workplace_id: int,
-    payload: dict,
+    payload: ImportResultsRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Importa resultados pre-calculados (p.ej. del modo invitado) al historial
     sin volver a ejecutar XGBoost. Útil al migrar datos de guest → cuenta real.
+
+    El payload valida forma (no un dict libre), y cada `property.id` referenciado
+    debe corresponder a una vivienda `approved` que exista de verdad: de lo
+    contrario, cualquier usuario autenticado podría escribir en su propio
+    historial un `match_score` o una vivienda inventados que `/latest` sirve
+    después como si vinieran del modelo.
     """
     work = db.query(Workplace).filter(
         Workplace.id == workplace_id,
@@ -139,23 +146,36 @@ def import_guest_results(
     if not work:
         raise HTTPException(status_code=404, detail="Lugar de trabajo no encontrado")
 
+    property_ids = [r.property.id for r in payload.results]
+    if property_ids:
+        real_ids = {
+            pid for (pid,) in db.query(Property.id).filter(
+                Property.id.in_(property_ids),
+                Property.status == "approved",
+            ).all()
+        }
+        if set(property_ids) - real_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="Uno o más resultados no corresponden a viviendas aprobadas existentes",
+            )
+
     history_entry = RecommendationHistory(
         workplace_id=workplace_id,
         results=json.dumps({
-            "results": payload.get("results", []),
-            "message": payload.get("message"),
-            "min_price_in_area": payload.get("min_price_in_area"),
+            "results": [r.model_dump() for r in payload.results],
+            "message": payload.message,
+            "min_price_in_area": payload.min_price_in_area,
         }),
     )
     db.add(history_entry)
     db.commit()
 
-    results = payload.get("results", [])
     return {
-        "results": results,
-        "total": len(results),
-        "message": payload.get("message"),
-        "min_price_in_area": payload.get("min_price_in_area"),
+        "results": payload.results,
+        "total": len(payload.results),
+        "message": payload.message,
+        "min_price_in_area": payload.min_price_in_area,
     }
 
 

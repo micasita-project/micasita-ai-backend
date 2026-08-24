@@ -9,6 +9,7 @@ from app.models.user import User
 from app.schemas.property import PropertyCreate, PropertyUpdate, PropertyResponse, ImageUploadResponse, PaginatedPropertyResponse
 from app.core.security import get_current_user, get_current_user_optional
 from app.core.config import settings
+from app.core.geo import is_within_lima, LIMA_LOCATION_ERROR
 from app.models.favorite import Favorite
 
 router = APIRouter(prefix="/properties", tags=["Properties (Viviendas)"])
@@ -70,6 +71,9 @@ def create_property(property_data: PropertyCreate, current_user: User = Depends(
     Un administrador debe aprobarla antes de que aparezca en el feed público.
     Incluir en `images` las URLs obtenidas previamente con `/upload_image`.
     """
+    if not is_within_lima(property_data.latitude, property_data.longitude):
+        raise HTTPException(status_code=400, detail=LIMA_LOCATION_ERROR)
+
     data = property_data.model_dump()
     new_property = Property(
         **data,
@@ -114,6 +118,13 @@ def update_property(property_id: int, property_data: PropertyUpdate, current_use
             status_code=403, detail="No se puede editar una vivienda en estado pending")
 
     update_data = property_data.model_dump(exclude_unset=True)
+
+    if 'latitude' in update_data or 'longitude' in update_data:
+        new_lat = update_data.get('latitude', prop.latitude)
+        new_lon = update_data.get('longitude', prop.longitude)
+        if not is_within_lima(new_lat, new_lon):
+            raise HTTPException(status_code=400, detail=LIMA_LOCATION_ERROR)
+
     for key, value in update_data.items():
         setattr(prop, key, value)
 
@@ -175,11 +186,25 @@ def get_my_favorites(current_user: User = Depends(get_current_user), db: Session
     responses={404: {"description": "Vivienda no encontrada"}},
 )
 def get_property(property_id: int, current_user: Optional[User] = Depends(get_current_user_optional), db: Session = Depends(get_db)):
-    """Obtiene el detalle de una vivienda por su ID. Si el usuario está autenticado, incluye `is_favorite`."""
+    """
+    Obtiene el detalle de una vivienda por su ID. Si el usuario está autenticado,
+    incluye `is_favorite`.
+
+    Las viviendas que no están `approved` (pendientes o rechazadas) solo las puede
+    ver su propio publicador o un admin — de lo contrario, cualquiera sin login
+    podría enumerar IDs y leer avisos aún no revisados, con teléfono y motivo de
+    rechazo incluidos. Se responde 404 igual que "no existe", para no confirmar
+    que el ID es válido pero restringido.
+    """
     prop = db.query(Property).filter(Property.id == property_id).first()
     if not prop:
         raise HTTPException(status_code=404, detail="Vivienda no encontrada")
-    
+
+    is_owner = current_user is not None and current_user.id == prop.publisher_id
+    is_admin = current_user is not None and current_user.role == "admin"
+    if prop.status != "approved" and not (is_owner or is_admin):
+        raise HTTPException(status_code=404, detail="Vivienda no encontrada")
+
     if current_user:
         is_fav = db.query(Favorite).filter(
             Favorite.user_id == current_user.id,

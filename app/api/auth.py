@@ -44,10 +44,23 @@ def register_user(user: UserCreate, background_tasks: BackgroundTasks, db: Sessi
 
     La cuenta queda con `email_verified=False` hasta que el usuario confirme
     el código enviado a su correo. El login requiere verificación previa.
+
+    Si ya existe un registro previo con este correo pero nunca se verificó,
+    se reemplaza (nueva contraseña, nuevo OTP) en vez de bloquear el intento:
+    de lo contrario, no completar la verificación deja el correo inutilizable
+    para siempre, sin forma de volver a intentarlo.
     """
     db_user = db.query(User).filter(User.email == user.email).first()
     if db_user:
-        raise HTTPException(status_code=400, detail="El email ya está registrado")
+        if db_user.email_verified:
+            raise HTTPException(status_code=400, detail="El email ya está registrado")
+        db_user.hashed_password = get_password_hash(user.password)
+        db_user.name = user.name
+        db_user.last_name = user.last_name
+        db.commit()
+        db.refresh(db_user)
+        background_tasks.add_task(_send_verification_email, db_user.email, db_user.name)
+        return db_user
 
     hashed_password = get_password_hash(user.password)
     new_user = User(

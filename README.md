@@ -114,4 +114,4 @@ Scripts utilitarios que se corren por consola. Por ejemplo, `seed_db.py` para ll
 ---
 
 ## 📖 Documentación de la API
-La documentación exhaustiva y detallada de cada endpoint de este proyecto (incluyendo requerimientos de Auth, Request Body y Responses) se encuentra autogenerada en el archivo [**API_DOCS.md**](./API_DOCS.md) ubicado en la raíz.
+La documentación exhaustiva y detallada de cada endpoint de este proyecto (incluyendo requerimientos de Auth, Request Body y Responses) se encuentra autogenerada en el archivo [**API_DOCS.md**](./docs/API_DOCS.md).

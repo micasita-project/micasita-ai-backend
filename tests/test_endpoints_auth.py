@@ -28,8 +28,8 @@ class TestRegister:
         assert data["email"] == "nuevo@test.com"
         assert data["role"] == "user"
 
-    def test_email_duplicado_retorna_400(self, client, mock_db):
-        mock_db.query.return_value.filter.return_value.first.return_value = make_user()
+    def test_email_duplicado_y_verificado_retorna_400(self, client, mock_db):
+        mock_db.query.return_value.filter.return_value.first.return_value = make_user(email_verified=True)
 
         resp = client.post("/auth/register", json={
             "email": "existe@test.com",
@@ -37,6 +37,23 @@ class TestRegister:
         })
         assert resp.status_code == 400
         assert "ya está registrado" in resp.json()["detail"]
+
+    def test_email_existente_pero_no_verificado_permite_reintentar(self, client, mock_db):
+        # Registro previo abandonado (nunca completó el OTP): no debe quedar
+        # bloqueado para siempre — se reemplaza con los datos nuevos.
+        pendiente = make_user(email="existe@test.com", email_verified=False)
+        pendiente.hashed_password = "hash-viejo"
+        mock_db.query.return_value.filter.return_value.first.return_value = pendiente
+
+        resp = client.post("/auth/register", json={
+            "email": "existe@test.com",
+            "password": "password-nuevo",
+            "name": "Nuevo",
+        })
+
+        assert resp.status_code == 200
+        assert pendiente.hashed_password != "hash-viejo"
+        assert pendiente.name == "Nuevo"
 
     def test_email_invalido_retorna_422(self, client, mock_db):
         resp = client.post("/auth/register", json={

@@ -17,6 +17,7 @@ class OtpCode(Base):
     purpose = Column(String, nullable=False)  # "password_reset" | "email_verify"
     code = Column(String, nullable=False)
     expires_at = Column(DateTime, nullable=False)
+    attempts = Column(Integer, nullable=False, default=0)
 
     __table_args__ = (
         Index("ix_otp_codes_email_purpose", "email", "purpose"),

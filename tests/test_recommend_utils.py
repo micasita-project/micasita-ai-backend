@@ -127,18 +127,31 @@ class TestGetOsrmRoute:
         assert dist == pytest.approx(5.0, rel=1e-3)
         assert tiempo == pytest.approx(10.0, rel=1e-3)
 
+    # OSRM_BASE_URLS ahora sale de settings (lee .env real) en vez de un
+    # default fijo en el módulo — se fija explícitamente a los defaults
+    # públicos para que el test no dependa de lo que tenga el .env local
+    # (p. ej. un OSRM propio apuntado a localhost para desarrollo).
+    _DEFAULT_URLS = {
+        "driving": "https://routing.openstreetmap.de/routed-car/route/v1/driving",
+        "cycling": "https://routing.openstreetmap.de/routed-bike/route/v1/driving",
+        "walking": "https://routing.openstreetmap.de/routed-foot/route/v1/driving",
+    }
+
+    @patch("app.services.recommendation_service.OSRM_BASE_URLS", _DEFAULT_URLS)
     @patch("app.services.recommendation_service.requests.get")
     def test_driving_llama_routed_car(self, mock_get):
         mock_get.return_value = _mock_osrm_ok(5000, 600)
         get_osrm_route(-12.046, -77.042, -12.120, -77.030, "driving")
         assert "routed-car" in mock_get.call_args[0][0]
 
+    @patch("app.services.recommendation_service.OSRM_BASE_URLS", _DEFAULT_URLS)
     @patch("app.services.recommendation_service.requests.get")
     def test_cycling_llama_routed_bike(self, mock_get):
         mock_get.return_value = _mock_osrm_ok(3000, 900)
         get_osrm_route(-12.046, -77.042, -12.120, -77.030, "cycling")
         assert "routed-bike" in mock_get.call_args[0][0]
 
+    @patch("app.services.recommendation_service.OSRM_BASE_URLS", _DEFAULT_URLS)
     @patch("app.services.recommendation_service.requests.get")
     def test_walking_llama_routed_foot(self, mock_get):
         mock_get.return_value = _mock_osrm_ok(2000, 1800)

@@ -40,5 +40,10 @@ env/
 .DS_Store
 Thumbs.db
 
+*.db
+*.bak*
+
+/data/processed/respaldos
+/data/raw/images/
 
 /scripts/scraper_viviendas

@@ -99,6 +99,41 @@ class TestGetProperty:
         resp = client.get("/properties/999")
         assert resp.status_code == 404
 
+    def test_anonimo_puede_ver_propiedad_aprobada(self, anon_client, mock_db):
+        mock_db.query.return_value.filter.return_value.first.return_value = make_property(id=1, status="approved")
+        resp = anon_client.get("/properties/1")
+        assert resp.status_code == 200
+
+    def test_anonimo_no_puede_ver_propiedad_pendiente(self, anon_client, mock_db):
+        # Sin esto, cualquiera sin login podía enumerar IDs y leer avisos aún
+        # no revisados (teléfono, motivo de rechazo incluidos).
+        mock_db.query.return_value.filter.return_value.first.return_value = make_property(id=1, status="pending")
+        resp = anon_client.get("/properties/1")
+        assert resp.status_code == 404
+
+    def test_anonimo_no_puede_ver_propiedad_rechazada(self, anon_client, mock_db):
+        mock_db.query.return_value.filter.return_value.first.return_value = make_property(id=1, status="rejected")
+        resp = anon_client.get("/properties/1")
+        assert resp.status_code == 404
+
+    def test_otro_usuario_logueado_no_puede_ver_pendiente_ajena(self, client, mock_db, mock_user):
+        prop = make_property(id=1, publisher_id=999, status="pending")  # no es el dueño
+        mock_db.query.return_value.filter.return_value.first.return_value = prop
+        resp = client.get("/properties/1")
+        assert resp.status_code == 404
+
+    def test_propietario_si_puede_ver_su_propia_pendiente(self, client, mock_db, mock_user):
+        prop = make_property(id=1, publisher_id=mock_user.id, status="pending")
+        mock_db.query.return_value.filter.return_value.first.return_value = prop
+        resp = client.get("/properties/1")
+        assert resp.status_code == 200
+
+    def test_admin_puede_ver_cualquier_propiedad(self, admin_client, mock_db):
+        prop = make_property(id=1, publisher_id=999, status="rejected")
+        mock_db.query.return_value.filter.return_value.first.return_value = prop
+        resp = admin_client.get("/properties/1")
+        assert resp.status_code == 200
+
 
 # ── POST /properties/ ─────────────────────────────────────────────────────────
 
@@ -109,6 +144,13 @@ class TestCreateProperty:
         data = resp.json()
         assert data["status"] == "pending"
         assert data["title"] == "Depto Miraflores"
+
+    def test_ubicacion_fuera_de_lima_retorna_400(self, client, mock_db):
+        payload = {**PROPERTY_PAYLOAD, "latitude": -16.4, "longitude": -71.5}  # Arequipa
+        resp = client.post("/properties/", json=payload)
+        assert resp.status_code == 400
+        assert "Lima" in resp.json()["detail"]
+        mock_db.add.assert_not_called()
 
 
 # ── PATCH /properties/{id} ───────────────────────────────────────────────────
@@ -142,6 +184,15 @@ class TestUpdateProperty:
         mock_db.query.return_value.filter.return_value.first.return_value = None
         resp = client.patch("/properties/999", json={"title": "X"})
         assert resp.status_code == 404
+
+    def test_mover_fuera_de_lima_retorna_400(self, client, mock_db, mock_user):
+        prop = make_property(id=1, publisher_id=mock_user.id, status="approved")
+        mock_db.query.return_value.filter.return_value.first.return_value = prop
+        resp = client.patch("/properties/1", json={"latitude": -16.4, "longitude": -71.5})
+        assert resp.status_code == 400
+        assert "Lima" in resp.json()["detail"]
+        # No debe haber quedado a medio actualizar
+        assert prop.latitude != -16.4
 
 
 # ── DELETE /properties/{id} ───────────────────────────────────────────────────

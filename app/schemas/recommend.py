@@ -18,6 +18,15 @@ class RecommendationResponse(BaseModel):
     predicted_time_min: float  # Tiempo simulado al trabajo en minutos
     time_saved_mins: Optional[float] = None  # Tiempo ahorrado vs casa actual
 
+class ImportResultsRequest(BaseModel):
+    """Payload de /import-results: misma forma que ya devuelve generar_recomendacion,
+    validada en vez de aceptarse como dict libre — de lo contrario cualquier usuario
+    autenticado podría escribir en su propio historial un match_score o property
+    inventados que /latest sirve después como si vinieran del modelo."""
+    results: List[RecommendationResponse] = []
+    message: Optional[str] = None
+    min_price_in_area: Optional[float] = None
+
 class RecommendationPageResponse(BaseModel):
     results: List[RecommendationResponse]
     total: int

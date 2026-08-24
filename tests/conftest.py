@@ -14,6 +14,16 @@ os.environ.setdefault("CLOUDINARY_API_SECRET", "test")
 os.environ.setdefault("RESEND_API_KEY", "test")
 os.environ.setdefault("RESEND_EMAIL_SENDER", "test@test.com")
 
+# Registra todos los modelos ANTES de que cualquier test instancie uno solo.
+# Sin esto, un archivo de test corrido en aislamiento (no como parte de toda
+# la suite) puede fallar al construir un User(): su relationship a Workplace
+# se resuelve por nombre de clase, y SQLAlchemy no la encuentra si el módulo
+# de Workplace no se importó todavía en este proceso.
+from app.models import (  # noqa: E402,F401
+    user, property, workplace, recommendation_history,
+    recommendation_preference, otp_code, favorite,
+)
+
 
 # ── Helpers para crear instancias de modelos sin sesión de DB real ────────────
 
@@ -124,7 +134,7 @@ def test_app():
     el bloque de startup de main.py (que conecta a la DB real).
     """
     from app.api import auth, workplaces, properties, recommendation_preferences
-    from app.api import admin, geocode, recommend
+    from app.api import admin, geocode, recommend, route
 
     _app = FastAPI(title="Test App")
     _app.include_router(auth.router)
@@ -134,6 +144,7 @@ def test_app():
     _app.include_router(admin.router)
     _app.include_router(geocode.router)
     _app.include_router(recommend.router)
+    _app.include_router(route.router)
     return _app
 
 

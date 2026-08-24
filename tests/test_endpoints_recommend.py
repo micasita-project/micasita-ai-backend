@@ -177,3 +177,88 @@ class TestRecommendationHistory:
         mock_db.query.return_value.filter.return_value.first.return_value = None
         resp = client.get("/recommend/workplaces/999/history")
         assert resp.status_code == 404
+
+
+# ── POST /recommend/workplaces/{id}/import-results ────────────────────────────
+
+def _result_payload(property_id=101, **overrides):
+    prop = {
+        "id": property_id,
+        "title": "Depto Miraflores",
+        "property_type": "Departamento",
+        "district": "Miraflores",
+        "address": "Av. Larco 123",
+        "latitude": -12.119,
+        "longitude": -77.029,
+        "total_area_sqm": 80.0,
+    }
+    prop.update(overrides.pop("property", {}))
+    return {
+        "results": [{
+            "property": prop,
+            "match_score": 85.0,
+            "predicted_time_min": 20.0,
+            "time_saved_mins": None,
+        }],
+        "message": None,
+        "min_price_in_area": None,
+        **overrides,
+    }
+
+
+class TestImportResults:
+    def test_workplace_no_encontrado_retorna_404(self, client, mock_db):
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+        resp = client.post(
+            "/recommend/workplaces/999/import-results", json=_result_payload()
+        )
+        assert resp.status_code == 404
+
+    def test_importa_resultados_de_propiedades_reales_y_aprobadas(self, client, mock_db):
+        work = make_workplace()
+        mock_db.query.return_value.filter.return_value.first.return_value = work
+        mock_db.query.return_value.filter.return_value.all.return_value = [(101,)]
+
+        resp = client.post(
+            "/recommend/workplaces/1/import-results", json=_result_payload(property_id=101)
+        )
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 1
+        mock_db.add.assert_called_once()
+
+    def test_property_inventada_o_no_aprobada_retorna_400(self, client, mock_db):
+        # El payload referencia el id 101, pero ninguna vivienda aprobada con
+        # ese id existe de verdad (o está pending/rejected) — se rechaza en
+        # vez de guardarse como si el modelo la hubiera recomendado.
+        work = make_workplace()
+        mock_db.query.return_value.filter.return_value.first.return_value = work
+        mock_db.query.return_value.filter.return_value.all.return_value = []
+
+        resp = client.post(
+            "/recommend/workplaces/1/import-results", json=_result_payload(property_id=101)
+        )
+        assert resp.status_code == 400
+        mock_db.add.assert_not_called()
+
+    def test_payload_sin_forma_valida_retorna_422(self, client, mock_db):
+        work = make_workplace()
+        mock_db.query.return_value.filter.return_value.first.return_value = work
+
+        # match_score inventado como texto, y sin los campos obligatorios de property
+        resp = client.post(
+            "/recommend/workplaces/1/import-results",
+            json={"results": [{"property": {"id": 1}, "match_score": "muchísimo"}]},
+        )
+        assert resp.status_code == 422
+        mock_db.add.assert_not_called()
+
+    def test_resultados_vacios_no_requiere_propiedades(self, client, mock_db):
+        work = make_workplace()
+        mock_db.query.return_value.filter.return_value.first.return_value = work
+
+        resp = client.post(
+            "/recommend/workplaces/1/import-results",
+            json={"results": [], "message": "Sin resultados", "min_price_in_area": None},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 0

@@ -47,6 +47,13 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     user = db.query(User).filter(User.email == email).first()
     if user is None:
         raise credentials_exception
+    if not user.is_active:
+        # El token pudo emitirse antes del bloqueo: sin este chequeo, sigue
+        # siendo válido en cada endpoint protegido hasta que expire por sí solo.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta cuenta ha sido bloqueada o suspendida por un administrador.",
+        )
     return user
 
 def get_current_admin(current_user: User = Depends(get_current_user)):
@@ -66,6 +73,8 @@ def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme), db:
         if email is None:
             return None
         user = db.query(User).filter(User.email == email).first()
+        if user is None or not user.is_active:
+            return None
         return user
     except JWTError:
         return None
