@@ -14,6 +14,7 @@ from unittest.mock import patch, MagicMock
 
 from app.services.recommendation_service import (
     generar_recomendacion, _serialize_results, calcular_match_score,
+    corregir_tiempos_por_franja, FRANJAS_HORAS,
 )
 
 
@@ -178,12 +179,16 @@ class TestGenararRecomendacionFlujoNormal:
 
     @patch("time.sleep")
     @patch("app.services.recommendation_service.predictor_travel_time")
+    @patch("app.services.recommendation_service.get_osrm_table")
     @patch("app.services.recommendation_service.get_osrm_route")
-    def test_time_saved_calculado_con_casa_actual(self, mock_osrm, mock_pred, mock_sleep):
-        # Primera llamada a OSRM (commute actual): 40 min; segunda (candidata): 20 min.
-        # corregir_tiempos se invoca dos veces (una por cada llamada a OSRM real):
-        # una para la vivienda actual, otra para el lote de candidatas.
-        mock_osrm.side_effect = [(0.0, 40.0), (5.0, 20.0)]
+    def test_time_saved_calculado_con_casa_actual(
+        self, mock_osrm_route, mock_osrm_table, mock_pred, mock_sleep
+    ):
+        # get_osrm_route resuelve el commute actual (vivienda de hoy -> trabajo);
+        # get_osrm_table resuelve en lote a las candidatas (aquí, una sola).
+        # corregir_tiempos se invoca dos veces: una por cada lote real de OSRM.
+        mock_osrm_route.return_value = (0.0, 40.0)
+        mock_osrm_table.return_value = [(5.0, 20.0)]
         mock_pred.predict_minutes.side_effect = [[40.0], [20.0]]
 
         db = _make_db(rows_no_radius=[(_make_property(1, 1200.0), 5.0)])
@@ -312,3 +317,45 @@ class TestSerializeResults:
         serialized = _serialize_results([result])
         assert serialized[0]["property"]["images"] == []
         assert serialized[0]["property"]["features"] == []
+
+
+# ─── corregir_tiempos_por_franja ──────────────────────────────────────────────
+
+FILA_BASE = {
+    "osrm_min": 20.0, "osrm_dist_km": 5.0, "modo": "driving",
+    "lat_a": -12.046, "lon_a": -77.042,
+    "lat_b": -12.120, "lon_b": -77.030,
+}
+
+
+class TestCorregirTiemposPorFranja:
+    @patch("app.services.recommendation_service.predictor_travel_time")
+    def test_devuelve_las_3_franjas_para_driving(self, mock_pred):
+        # Una sola llamada al modelo con las 3 filas (una por franja).
+        mock_pred.predict_minutes.return_value = [22.0, 25.0, 30.0]
+        resultado = corregir_tiempos_por_franja(FILA_BASE)
+        assert set(resultado.keys()) == set(FRANJAS_HORAS.keys())
+        assert resultado["punta_manana"] == 22.0
+        assert resultado["valle"] == 25.0
+        assert resultado["punta_tarde"] == 30.0
+        mock_pred.predict_minutes.assert_called_once()
+        filas_enviadas = mock_pred.predict_minutes.call_args[0][0]
+        assert len(filas_enviadas) == 3
+        horas_enviadas = {f["hora"] for f in filas_enviadas}
+        assert horas_enviadas == set(FRANJAS_HORAS.values())
+
+    @patch("app.services.recommendation_service.predictor_travel_time")
+    def test_ninguna_franja_para_cycling(self, mock_pred):
+        # Bici solo tiene una franja en el dataset ("valle"): no hay base para
+        # ofrecer variación por hora sin extrapolar fuera de lo entrenado.
+        fila = {**FILA_BASE, "modo": "cycling"}
+        resultado = corregir_tiempos_por_franja(fila)
+        assert resultado is None
+        mock_pred.predict_minutes.assert_not_called()
+
+    @patch("app.services.recommendation_service.predictor_travel_time")
+    def test_ninguna_franja_para_walking(self, mock_pred):
+        fila = {**FILA_BASE, "modo": "walking"}
+        resultado = corregir_tiempos_por_franja(fila)
+        assert resultado is None
+        mock_pred.predict_minutes.assert_not_called()

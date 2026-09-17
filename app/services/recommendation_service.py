@@ -190,6 +190,15 @@ DIA_SEMANA_INFERENCIA = 1  # martes, el único valor visto en entrenamiento
 # tiempo mostrado corresponde a esa franja, no a la hora real de cada usuario.
 HORA_INFERENCIA = 7  # 7:00 am, punta de la mañana
 
+# Para el desglose "¿y a otras horas?" del insight de una recomendación. Mismas
+# horas con las que se entrenó scripts/collect_traffic_data.py. Solo tiene
+# sentido ofrecerlo en auto: es el único modo que se recolectó en las 3 franjas
+# (bicicleta y caminata solo tienen "valle" en el dataset), así que pedirle al
+# modelo punta_mañana/punta_tarde en esos modos sería extrapolar fuera de lo
+# que vio en entrenamiento.
+FRANJAS_HORAS = {"punta_manana": 7, "valle": 13, "punta_tarde": 18}
+MODOS_CON_DESGLOSE_HORARIO = {"driving"}
+
 
 def _geo_relativa(lat, lon):
     """Distancia (km) de un punto al centro de Lima, misma métrica que en el
@@ -203,7 +212,9 @@ def corregir_tiempos(filas_osrm: list[dict]) -> list[float]:
     con tráfico, usando el modelo entrenado contra TomTom.
 
     Cada fila necesita: osrm_min, osrm_dist_km, modo, lat/lon de los dos
-    extremos del trayecto (para la geografía relativa a Lima).
+    extremos del trayecto (para la geografía relativa a Lima). `hora` es
+    opcional por fila (por defecto HORA_INFERENCIA) — la usa el desglose por
+    franja horaria para pedir el mismo trayecto a distintas horas.
     """
     entradas = []
     for f in filas_osrm:
@@ -213,7 +224,7 @@ def corregir_tiempos(filas_osrm: list[dict]) -> list[float]:
             "osrm_min": f["osrm_min"],
             "osrm_dist_km": f["osrm_dist_km"],
             "modo": f["modo"],
-            "hora": HORA_INFERENCIA,
+            "hora": f.get("hora", HORA_INFERENCIA),
             "dia_semana": DIA_SEMANA_INFERENCIA,
             "work_dist_centro_km": centro_a,
             "prop_dist_centro_km": centro_b,
@@ -227,6 +238,23 @@ def corregir_tiempos(filas_osrm: list[dict]) -> list[float]:
         f"{len(filas_osrm)} filas de entrada"
     )
     return corregidos
+
+
+def corregir_tiempos_por_franja(fila_osrm: dict) -> dict[str, float] | None:
+    """
+    Corrige el mismo trayecto para las 3 franjas horarias de referencia
+    (punta_mañana, valle, punta_tarde), en una sola llamada al modelo.
+
+    Devuelve None si el modo no tiene desglose horario válido (ver
+    MODOS_CON_DESGLOSE_HORARIO) — mostrar variación por hora ahí sería
+    extrapolar fuera de lo que el modelo vio en entrenamiento.
+    """
+    if fila_osrm["modo"] not in MODOS_CON_DESGLOSE_HORARIO:
+        return None
+    franjas = list(FRANJAS_HORAS.items())
+    filas = [{**fila_osrm, "hora": hora} for _, hora in franjas]
+    corregidos = corregir_tiempos(filas)
+    return {nombre: minutos for (nombre, _), minutos in zip(franjas, corregidos)}
 
 
 # --- match_score: función de utilidad explícita, no un modelo de ML ---

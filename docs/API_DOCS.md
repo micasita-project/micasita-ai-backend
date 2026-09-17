@@ -18,6 +18,7 @@ Authorization: Bearer <access_token>
 - [Lugares de Trabajo (`/workplaces`)](#lugares-de-trabajo-workplaces)
 - [Preferencias de Recomendación (`/recommendation_preferences`)](#preferencias-de-recomendación)
 - [IA — Recomendaciones (`/recommend`)](#ia--recomendaciones-recommend)
+- [Ruteo (`/route`)](#ruteo-route)
 - [Geocodificación (`/geocode`)](#geocodificación-geocode)
 - [Administración (`/admin`)](#administración-admin)
 - [Esquemas de datos](#esquemas-de-datos)
@@ -710,7 +711,7 @@ Actualiza las preferencias de recomendación. Solo se modifican los campos envia
 
 ## IA — Recomendaciones (`/recommend`)
 
-El motor de IA usa un modelo XGBoost entrenado con datos de Lima. Calcula el tiempo de viaje al trabajo usando OSRM (rutas reales). Si OSRM falla o supera 5 timeouts consecutivos, activa un circuit breaker y usa Haversine + velocidades promedio como fallback.
+El motor de recomendaciones filtra viviendas por presupuesto y radio con PostGIS, consulta a OSRM (`/table`) el tiempo y la distancia de **todas** las candidatas en una sola petición por lote, y corrige ese tiempo de flujo libre al tiempo real con tráfico usando un modelo XGBoost entrenado contra datos de TomTom. El `match_score` **no lo calcula el modelo**: es una función explícita que combina el tiempo ya corregido, el presupuesto, la distancia y el área. Si la consulta a OSRM falla por completo, todas las candidatas del lote se estiman con distancia en línea recta (Haversine) y no pasan por la corrección de IA.
 
 ### `POST /recommend/guest`
 
@@ -874,6 +875,121 @@ Devuelve el historial completo de todas las recomendaciones generadas para un wo
 | `200`  | `RecommendationPageResponse` (no se guarda)  |
 | `400`  | Sin preferencias configuradas                |
 | `404`  | Workplace no encontrado                      |
+
+---
+
+### `POST /recommend/workplaces/{workplace_id}/import-results`
+
+Guarda en el historial del usuario autenticado un conjunto de resultados ya calculados, **sin volver a ejecutar el modelo**. Se usa para migrar las recomendaciones generadas durante una sesión de invitado (`/recommend/guest`) hacia una cuenta real después del login o registro.
+
+**Requiere autenticación:** Sí
+
+**Parámetros de path:**
+
+| Nombre         | Tipo      | Descripción            |
+| -------------- | --------- | ---------------------- |
+| `workplace_id` | `integer` | ID del lugar de trabajo |
+
+**Request Body** (`application/json`) — esquema `ImportResultsRequest`:
+
+| Campo                | Tipo                          | Requerido | Descripción                                              |
+| -------------------- | ----------------------------- | --------- | -------------------------------------------------------- |
+| `results`            | `array[RecommendationResponse]` | No      | Resultados a persistir (default: `[]`)                   |
+| `message`            | `string`                      | No        | Mensaje asociado (ej. motivo de lista vacía)              |
+| `min_price_in_area`  | `number`                      | No        | Precio mínimo disponible en la zona, si aplica            |
+
+Cada elemento de `results` requiere una `property` completa (mismo esquema que `PropertyResponse`), `match_score` y `predicted_time_min`; `time_saved_mins` es opcional.
+
+**Validación:** cada `results[].property.id` enviado se verifica contra la base de datos — debe corresponder a una vivienda existente y en estado `approved`. Sin este chequeo, cualquier usuario autenticado podría inyectar en su propio historial un `match_score` inventado o una vivienda inexistente/no aprobada, que luego `GET /latest` serviría como si viniera del modelo.
+
+**Ejemplo de request:**
+```json
+{
+  "results": [
+    {
+      "property": {
+        "id": 42,
+        "title": "Depa moderno en San Isidro",
+        "property_type": "departamento",
+        "district": "San Isidro",
+        "address": "Av. Javier Prado 123",
+        "latitude": -12.0931,
+        "longitude": -77.0465,
+        "currency": "PEN",
+        "price": 350000,
+        "total_area_sqm": 80.0,
+        "bedrooms": 2,
+        "bathrooms": 2,
+        "images": [],
+        "features": []
+      },
+      "match_score": 87.5,
+      "predicted_time_min": 22.3,
+      "time_saved_mins": 5.0
+    }
+  ],
+  "message": null,
+  "min_price_in_area": 280000.0
+}
+```
+
+**Respuesta exitosa (200):** `RecommendationPageResponse` (eco de los resultados enviados, ya persistidos en una nueva entrada de historial)
+
+**Respuestas:**
+
+| Código | Descripción                                                              |
+| ------ | ------------------------------------------------------------------------- |
+| `200`  | Resultados guardados en el historial                                     |
+| `400`  | Una o más viviendas referenciadas no existen o no están `approved`       |
+| `401`  | Token inválido o expirado                                                |
+| `404`  | Workplace no encontrado o no pertenece al usuario                        |
+| `422`  | Error de validación del payload                                          |
+
+---
+
+## Ruteo (`/route`)
+
+Punto único de ruteo bajo demanda. La app móvil nunca llama a OSRM directamente — para el mapa de detalle de una vivienda usa siempre este endpoint.
+
+### `GET /route`
+
+Devuelve distancia, tiempo corregido y geometría de la ruta entre dos puntos para un modo de transporte dado. Aplica la misma corrección de tiempo (XGBoost) que usa el motor de recomendaciones. Si OSRM falla, degrada a una estimación por distancia en línea recta (Haversine) en vez de devolver un error — el campo `from_osrm` indica si el valor es real o estimado.
+
+**Requiere autenticación:** No
+
+**Parámetros de query:**
+
+| Nombre        | Tipo      | Requerido | Default | Descripción                                              |
+| ------------- | --------- | --------- | ------- | -------------------------------------------------------- |
+| `origin_lat`  | `number`  | Sí        | —       | Latitud de origen                                        |
+| `origin_lon`  | `number`  | Sí        | —       | Longitud de origen                                       |
+| `dest_lat`    | `number`  | Sí        | —       | Latitud de destino                                       |
+| `dest_lon`    | `number`  | Sí        | —       | Longitud de destino                                      |
+| `mode`        | `string`  | Sí        | —       | `"driving"`, `"cycling"` o `"walking"`                   |
+| `franjas`     | `boolean` | No        | `false` | Si es `true` (y el modo lo soporta), incluye desglose por franja horaria |
+
+**Respuesta exitosa (200):**
+```json
+{
+  "distance_km": 5.42,
+  "duration_min": 18.3,
+  "waypoints": [
+    { "latitude": -12.0464, "longitude": -77.0428 },
+    { "latitude": -12.0510, "longitude": -77.0350 }
+  ],
+  "from_osrm": true,
+  "franjas": { "punta_manana": 22.1, "valle": 18.3, "punta_tarde": 24.7 }
+}
+```
+
+> Si OSRM no responde, `from_osrm` es `false`, `franjas` es `null` y `distance_km`/`duration_min` provienen de una estimación Haversine.
+
+**Respuestas:**
+
+| Código | Descripción                                                       |
+| ------ | ------------------------------------------------------------------ |
+| `200`  | Ruta calculada (real u estimada — ver `from_osrm`)                 |
+| `422`  | Parámetros faltantes, con tipo inválido, o `mode` no reconocido    |
 
 ---
 
@@ -1172,6 +1288,26 @@ Activa o bloquea la cuenta de un usuario. Al bloquear, todas sus viviendas se oc
   "match_score": 87.4,
   "predicted_time_min": 18,
   "time_saved_mins": 12
+}
+```
+
+### `RouteResponse`
+```json
+{
+  "distance_km": 5.42,
+  "duration_min": 18.3,
+  "waypoints": [ { "latitude": -12.0464, "longitude": -77.0428 } ],
+  "from_osrm": true,
+  "franjas": { "punta_manana": 22.1, "valle": 18.3, "punta_tarde": 24.7 }
+}
+```
+
+### `ImportResultsRequest`
+```json
+{
+  "results": [ { "property": { ...PropertyResponse }, "match_score": 87.5, "predicted_time_min": 22.3, "time_saved_mins": 5.0 } ],
+  "message": null,
+  "min_price_in_area": 280000.0
 }
 ```
 

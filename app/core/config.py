@@ -36,6 +36,20 @@ class Settings(BaseSettings):
     OSRM_CYCLING_URL: str = "https://routing.openstreetmap.de/routed-bike/route/v1/driving"
     OSRM_WALKING_URL: str = "https://routing.openstreetmap.de/routed-foot/route/v1/driving"
 
+    # scripts/seed_db.py — usuario admin y workplace de arranque para una base
+    # nueva. Antes estaban hardcodeados en el script: credenciales siempre
+    # iguales (admin@micasita.ai / password123) y una dirección real de
+    # alguien como "casa" del admin semilla. Sin valores en .env, se usan
+    # defaults genéricos y sin dato personal — nunca la dirección real.
+    SEED_ADMIN_EMAIL: str = "admin@micasita.local"
+    SEED_ADMIN_PASSWORD: str = ""  # vacío = seed_db.py genera una al azar y la imprime una vez
+    SEED_ADMIN_HOME_LAT: float = -12.0464
+    SEED_ADMIN_HOME_LON: float = -77.0428
+    SEED_ADMIN_HOME_ADDRESS: str = "Lima, Perú"
+    SEED_WORKPLACE_ADDRESS: str = "Oficina Central"
+    SEED_WORKPLACE_LAT: float = -12.0931
+    SEED_WORKPLACE_LON: float = -77.0465
+
     model_config = {
         "env_file": ".env",
         "case_sensitive": True,

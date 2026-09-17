@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional, Dict
 
 from app.services.recommendation_service import (
-    get_osrm_route_with_geometry, corregir_tiempos, simulate_commute_time, haversine,
+    get_osrm_route_with_geometry, corregir_tiempos, corregir_tiempos_por_franja,
+    simulate_commute_time, haversine,
 )
 
 router = APIRouter(prefix="/route", tags=["Ruteo"])
@@ -19,6 +20,10 @@ class RouteResponse(BaseModel):
     duration_min: float
     waypoints: List[Waypoint]
     from_osrm: bool  # False si OSRM falló y se usó la aproximación de Haversine
+    # Mismo trayecto corregido a punta_mañana/valle/punta_tarde. Solo se llena
+    # si se pidió con `franjas=true` y el modo lo soporta (ver
+    # MODOS_CON_DESGLOSE_HORARIO) — None en cualquier otro caso.
+    franjas: Optional[Dict[str, float]] = None
 
 
 @router.get(
@@ -34,6 +39,7 @@ def get_route(
     dest_lat: float = Query(...),
     dest_lon: float = Query(...),
     mode: str = Query(..., pattern="^(driving|cycling|walking)$"),
+    franjas: bool = Query(False, description="Incluir el desglose por franja horaria (solo auto)"),
 ):
     """
     Único punto de entrada del front para ruteo. El front NUNCA debe llamar a
@@ -47,17 +53,20 @@ def get_route(
         dist_km, duration_osrm, waypoints = get_osrm_route_with_geometry(
             origin_lat, origin_lon, dest_lat, dest_lon, mode
         )
-        corregidos = corregir_tiempos([{
+        fila = {
             "osrm_min": duration_osrm, "osrm_dist_km": dist_km,
             "modo": mode.lower(),
             "lat_a": origin_lat, "lon_a": origin_lon,
             "lat_b": dest_lat, "lon_b": dest_lon,
-        }])
+        }
+        corregidos = corregir_tiempos([fila])
+        desglose = corregir_tiempos_por_franja(fila) if franjas else None
         return RouteResponse(
             distance_km=round(dist_km, 2),
             duration_min=round(corregidos[0], 1),
             waypoints=[Waypoint(**w) for w in waypoints],
             from_osrm=True,
+            franjas={k: round(v, 1) for k, v in desglose.items()} if desglose else None,
         )
     except Exception:
         dist_km = haversine(origin_lat, origin_lon, dest_lat, dest_lon)

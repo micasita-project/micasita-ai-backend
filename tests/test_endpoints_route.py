@@ -32,6 +32,49 @@ class TestGetRoute:
         assert data["duration_min"] == 12.3
         assert data["from_osrm"] is True
         assert len(data["waypoints"]) == 2
+        # Sin pedir el desglose explícitamente, no debe calcularse.
+        assert data["franjas"] is None
+
+    @patch("app.api.route.corregir_tiempos_por_franja")
+    @patch("app.api.route.corregir_tiempos")
+    @patch("app.api.route.get_osrm_route_with_geometry")
+    def test_franjas_true_incluye_el_desglose_horario(
+        self, mock_osrm, mock_corregir, mock_por_franja, anon_client
+    ):
+        mock_osrm.return_value = (3.4, 15.0, [
+            {"latitude": -12.0969, "longitude": -77.0367},
+            {"latitude": -12.1211, "longitude": -77.0295},
+        ])
+        mock_corregir.return_value = [12.3]
+        mock_por_franja.return_value = {"punta_manana": 12.3, "valle": 13.8, "punta_tarde": 16.8}
+
+        resp = anon_client.get("/route", params={**PARAMS, "franjas": "true"})
+
+        assert resp.status_code == 200
+        assert resp.json()["franjas"] == {"punta_manana": 12.3, "valle": 13.8, "punta_tarde": 16.8}
+
+    @patch("app.api.route.corregir_tiempos_por_franja")
+    @patch("app.api.route.corregir_tiempos")
+    @patch("app.api.route.get_osrm_route_with_geometry")
+    def test_franjas_true_en_modo_sin_desglose_devuelve_null(
+        self, mock_osrm, mock_corregir, mock_por_franja, anon_client
+    ):
+        # walking no tiene desglose horario válido (ver MODOS_CON_DESGLOSE_HORARIO
+        # en recommendation_service.py) — corregir_tiempos_por_franja ya devuelve
+        # None ahí; el endpoint solo debe respetarlo, no inventar nada.
+        mock_osrm.return_value = (2.8, 30.0, [
+            {"latitude": -12.0969, "longitude": -77.0367},
+            {"latitude": -12.1211, "longitude": -77.0295},
+        ])
+        mock_corregir.return_value = [32.0]
+        mock_por_franja.return_value = None
+
+        resp = anon_client.get(
+            "/route", params={**PARAMS, "mode": "walking", "franjas": "true"}
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["franjas"] is None
 
     @patch("app.api.route.get_osrm_route_with_geometry")
     def test_osrm_falla_degrada_a_haversine_sin_romper_la_peticion(

@@ -1,10 +1,12 @@
 import json
 import os
+import secrets
 import sys
 
 # Agregamos la ruta principal al path para que pueda importar módulos de 'app'
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app.core.config import settings
 from app.core.database import SessionLocal, engine, Base
 from app.core.security import get_password_hash
 from app.models.user import User
@@ -37,27 +39,30 @@ def seed_database():
             return
 
         # 2. Crear usuario por defecto
-        print("Creando usuario por defecto (admin@micasita.ai)...")
+        admin_password = settings.SEED_ADMIN_PASSWORD or secrets.token_urlsafe(12)
+        print(f"Creando usuario por defecto ({settings.SEED_ADMIN_EMAIL})...")
         default_user = User(
-            email="admin@micasita.ai",
-            hashed_password=get_password_hash("password123"),
+            email=settings.SEED_ADMIN_EMAIL,
+            hashed_password=get_password_hash(admin_password),
             role="admin",
-            home_lat=-11.895428501274143,
-            home_lon=-77.04029923406615, 
-            home_address="Hermenegildo rojas 125",
+            home_lat=settings.SEED_ADMIN_HOME_LAT,
+            home_lon=settings.SEED_ADMIN_HOME_LON,
+            home_address=settings.SEED_ADMIN_HOME_ADDRESS,
             is_active=True
         )
         db.add(default_user)
         db.commit()
         db.refresh(default_user)
-        
+        if not settings.SEED_ADMIN_PASSWORD:
+            print(f"  Contraseña generada (no se repite, guárdala ahora): {admin_password}")
+
         # 3. Crear lugar de trabajo por defecto
         print("Creando lugar de trabajo asociado...")
         workplace = Workplace(
             user_id=default_user.id,
-            work_address="Oficina Central",
-            work_lat=-12.0931, # San Isidro
-            work_lon=-77.0465
+            work_address=settings.SEED_WORKPLACE_ADDRESS,
+            work_lat=settings.SEED_WORKPLACE_LAT,
+            work_lon=settings.SEED_WORKPLACE_LON,
         )
         db.add(workplace)
         db.commit()

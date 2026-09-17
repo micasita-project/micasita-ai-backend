@@ -410,3 +410,82 @@ RouteService -up-..> Property : consulta coordenadas
 
 @enduml
 ```
+
+---
+
+## 6. Diagrama de Secuencia: Flujo de Recomendación
+
+```plantuml
+@startuml
+title Diagrama de Secuencia: Flujo de Recomendación
+
+actor Usuario
+participant "App MiCasita" as App
+participant "Motor de Recomendaciones" as Motor
+participant "Servicio de Rutas (OSRM)" as OSRM
+participant "Modelo de Corrección\nde Tiempo (XGBoost)" as IA
+
+Usuario -> App: 1 Ingresa lugar de trabajo,\npresupuesto y transporte
+App -> Motor: 2 Solicita viviendas compatibles
+activate Motor
+
+Motor -> Motor: 3 Busca viviendas dentro\ndel radio y presupuesto (PostGIS)
+
+Motor -> OSRM: 4 Solicita tiempo y distancia\nde TODAS las candidatas (una sola consulta por lote)
+activate OSRM
+
+alt OSRM responde
+    OSRM --> Motor: 5 Devuelve distancias y tiempos\n(flujo libre, sin tráfico)
+    deactivate OSRM
+    Motor -> IA: 6 Corrige el tiempo de flujo libre\n(hora, modo, ubicación relativa a Lima)
+    activate IA
+    IA --> Motor: 7 Devuelve tiempo real\nestimado con tráfico
+    deactivate IA
+else OSRM no responde (todo el lote)
+    OSRM --> Motor: 5' Error / timeout
+    deactivate OSRM
+    Motor -> Motor: 6' Estima tiempo con distancia\nen línea recta (Haversine) — sin corrección de IA
+end
+
+Motor -> Motor: 8 Calcula match_score\n(fórmula explícita: tiempo + presupuesto + distancia + área)
+Motor -> Motor: 9 Ordena las viviendas\nde mayor a menor puntaje
+Motor -> App: 10 Devuelve las mejores propiedades
+deactivate Motor
+App -> Usuario: 11 Muestra recomendaciones al usuario
+
+@enduml
+```
+
+---
+
+## 7. Diagrama de Actividad: Motor de Recomendación
+
+```plantuml
+@startuml
+title Diagrama de Actividad: Motor de Recomendación
+
+start
+:Recibir lugar de trabajo,\npresupuesto y modo de transporte;
+:Consultar catálogo de viviendas\naprobadas dentro del radio (PostGIS);
+
+if (¿Hay viviendas dentro del presupuesto?) then (no)
+    :Notificar que ninguna vivienda\nentra en el presupuesto\n(indica el precio mínimo disponible);
+    stop
+else (sí)
+    :Solicitar a OSRM tiempo y distancia\nde todas las candidatas en una sola consulta;
+
+    if (¿OSRM respondió?) then (sí)
+        :Corregir el tiempo de viaje\ncon el modelo XGBoost\n(entrenado con tráfico real de TomTom);
+    else (no)
+        :Estimar tiempo con distancia\nen línea recta (Haversine)\nsin corrección de IA;
+    endif
+
+    :Calcular match_score por vivienda\n(fórmula explícita: tiempo + presupuesto\n+ distancia + área — no es ML);
+    :Ordenar viviendas de mayor\na menor match_score;
+    :Generar respuesta JSON;
+    :Mostrar resultados en el mapa;
+    stop
+endif
+
+@enduml
+```
