@@ -416,18 +416,43 @@ def generar_recomendacion(
     # de OSRM real. Las que cayeron al fallback de Haversine se quedan con esa
     # estimación tal cual: el modelo se entrenó con salidas de OSRM, meterle una
     # aproximación en línea recta sería extrapolar fuera de lo que aprendió.
+    #
+    # Para los modos con desglose horario válido (ver MODOS_CON_DESGLOSE_HORARIO),
+    # se corrige el mismo trayecto a las 3 franjas de referencia en un solo batch
+    # (3 filas por candidata) en vez de 3 llamadas separadas al modelo. El tiempo
+    # "principal" que se muestra es punta_mañana, igual que HORA_INFERENCIA.
     indices_osrm = [i for i, d in enumerate(lista_casas) if d["de_osrm"]]
     if indices_osrm:
-        filas = [{
-            "osrm_min": lista_casas[i]["tiempo_osrm"],
-            "osrm_dist_km": lista_casas[i]["dist_km"],
-            "modo": mode_english,
-            "lat_a": work_lat, "lon_a": work_lon,
-            "lat_b": lista_casas[i]["prop"].latitude, "lon_b": lista_casas[i]["prop"].longitude,
-        } for i in indices_osrm]
-        corregidos = corregir_tiempos(filas)
-        for i, tiempo_corregido in zip(indices_osrm, corregidos):
-            lista_casas[i]["tiempo"] = tiempo_corregido
+        if mode_english in MODOS_CON_DESGLOSE_HORARIO:
+            franjas_items = list(FRANJAS_HORAS.items())
+            filas_expandidas = []
+            for i in indices_osrm:
+                base = {
+                    "osrm_min": lista_casas[i]["tiempo_osrm"],
+                    "osrm_dist_km": lista_casas[i]["dist_km"],
+                    "modo": mode_english,
+                    "lat_a": work_lat, "lon_a": work_lon,
+                    "lat_b": lista_casas[i]["prop"].latitude, "lon_b": lista_casas[i]["prop"].longitude,
+                }
+                filas_expandidas.extend({**base, "hora": hora} for _, hora in franjas_items)
+            corregidos_todos = corregir_tiempos(filas_expandidas)
+            n = len(franjas_items)
+            for pos, i in enumerate(indices_osrm):
+                valores = corregidos_todos[pos * n:(pos + 1) * n]
+                desglose = {nombre: v for (nombre, _), v in zip(franjas_items, valores)}
+                lista_casas[i]["franjas"] = desglose
+                lista_casas[i]["tiempo"] = desglose["punta_manana"]
+        else:
+            filas = [{
+                "osrm_min": lista_casas[i]["tiempo_osrm"],
+                "osrm_dist_km": lista_casas[i]["dist_km"],
+                "modo": mode_english,
+                "lat_a": work_lat, "lon_a": work_lon,
+                "lat_b": lista_casas[i]["prop"].latitude, "lon_b": lista_casas[i]["prop"].longitude,
+            } for i in indices_osrm]
+            corregidos = corregir_tiempos(filas)
+            for i, tiempo_corregido in zip(indices_osrm, corregidos):
+                lista_casas[i]["tiempo"] = tiempo_corregido
     for d in lista_casas:
         d.setdefault("tiempo", d["tiempo_osrm"])  # las de fallback no se tocaron arriba
 
@@ -447,11 +472,13 @@ def generar_recomendacion(
         prop = d["prop"]
         prop.is_favorite = prop.id in fav_ids
 
+        franjas = d.get("franjas")
         resultados.append({
             "property": prop,
             "predicted_time_min": round(tiempo),
             "match_score": round(score, 1),
             "time_saved_mins": round(time_saved) if time_saved is not None else None,
+            "franjas": {k: round(v, 1) for k, v in franjas.items()} if franjas else None,
         })
 
     ordered = sorted(resultados, key=lambda x: x["match_score"], reverse=True)
@@ -491,5 +518,6 @@ def _serialize_results(resultados):
             "match_score": r["match_score"],
             "predicted_time_min": r["predicted_time_min"],
             "time_saved_mins": r.get("time_saved_mins"),
+            "franjas": r.get("franjas"),
         })
     return serialized

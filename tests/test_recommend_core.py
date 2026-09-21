@@ -122,7 +122,8 @@ class TestGenararRecomendacionSinResultados:
             patch("app.services.recommendation_service.predictor_travel_time") as mock_pred,
             patch("app.services.recommendation_service.get_osrm_route", return_value=(3.0, 15.0)),
         ):
-            mock_pred.predict_minutes.return_value = [12.0]
+            # driving expande a 3 filas por candidata (una por franja horaria).
+            mock_pred.predict_minutes.return_value = [12.0, 12.0, 12.0]
             db = _make_db(rows_no_radius=[(p, 3.0)])
             result = generar_recomendacion(-12.046, -77.042, 1000, "driving", db)
         assert result["total"] == 1
@@ -143,9 +144,11 @@ class TestGenararRecomendacionFlujoNormal:
         # calcular_match_score (no la fórmula en sí, que ya se prueba aparte).
         # get_osrm_table devuelve una fila por candidata, en el mismo orden.
         mock_osrm_table.return_value = [(5.0, 20.0), (5.0, 20.0), (5.0, 20.0)]
-        # Un valor por candidata: predict_minutes se llama UNA vez con el lote
-        # completo, no una vez por propiedad.
-        mock_pred.predict_minutes.return_value = [15.0, 15.0, 15.0]
+        # predict_minutes se llama UNA vez con el lote completo. Para driving,
+        # cada candidata se expande a 3 filas (una por franja horaria), así que
+        # el mock necesita 3 candidatas x 3 franjas = 9 valores, todos iguales
+        # para que el tiempo corregido siga siendo el mismo para las tres.
+        mock_pred.predict_minutes.return_value = [15.0] * 9
 
         props = [
             _make_property(1, 1200.0),   # precio_ratio 0.60
@@ -166,10 +169,13 @@ class TestGenararRecomendacionFlujoNormal:
 
     @patch("time.sleep")
     @patch("app.services.recommendation_service.predictor_travel_time")
+    @patch("app.services.recommendation_service.get_osrm_table")
     @patch("app.services.recommendation_service.get_osrm_route")
-    def test_time_saved_es_none_sin_casa_actual(self, mock_osrm, mock_pred, mock_sleep):
+    def test_time_saved_es_none_sin_casa_actual(self, mock_osrm, mock_osrm_table, mock_pred, mock_sleep):
         mock_osrm.return_value = (5.0, 20.0)
-        mock_pred.predict_minutes.return_value = [15.0]
+        mock_osrm_table.return_value = [(5.0, 20.0)]
+        # driving expande a 3 filas por candidata (una por franja horaria).
+        mock_pred.predict_minutes.return_value = [15.0, 15.0, 15.0]
 
         db = _make_db(rows_no_radius=[(_make_property(1, 1200.0), 5.0)])
         result = generar_recomendacion(-12.046, -77.042, 2000, "driving", db)
@@ -189,7 +195,10 @@ class TestGenararRecomendacionFlujoNormal:
         # corregir_tiempos se invoca dos veces: una por cada lote real de OSRM.
         mock_osrm_route.return_value = (0.0, 40.0)
         mock_osrm_table.return_value = [(5.0, 20.0)]
-        mock_pred.predict_minutes.side_effect = [[40.0], [20.0]]
+        # Primera llamada: commute actual (1 fila, sin desglose por franja).
+        # Segunda llamada: candidatas — driving expande a 3 filas (1 candidata
+        # x 3 franjas), todas iguales para que el tiempo corregido siga en 20.
+        mock_pred.predict_minutes.side_effect = [[40.0], [20.0, 20.0, 20.0]]
 
         db = _make_db(rows_no_radius=[(_make_property(1, 1200.0), 5.0)])
         result = generar_recomendacion(

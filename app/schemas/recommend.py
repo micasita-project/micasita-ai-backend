@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime
 from app.schemas.property import PropertyResponse
 
@@ -17,6 +17,10 @@ class RecommendationResponse(BaseModel):
     match_score: float  # Puntaje del 0 al 100 de XGBoost
     predicted_time_min: float  # Tiempo simulado al trabajo en minutos
     time_saved_mins: Optional[float] = None  # Tiempo ahorrado vs casa actual
+    # Mismo trayecto corregido a punta_mañana/valle/punta_tarde. Solo viene
+    # relleno para driving (ver MODOS_CON_DESGLOSE_HORARIO en
+    # recommendation_service.py) — None en cualquier otro modo.
+    franjas: Optional[Dict[str, float]] = None
 
 class ImportResultsRequest(BaseModel):
     """Payload de /import-results: misma forma que ya devuelve generar_recomendacion,

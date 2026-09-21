@@ -753,7 +753,8 @@ Genera recomendaciones sin necesidad de cuenta. Requiere pasar todos los paráme
       "property": { "id": 42, "title": "Casa en San Borja", ... },
       "match_score": 87.4,
       "predicted_time_min": 18,
-      "time_saved_mins": 12
+      "time_saved_mins": 12,
+      "franjas": { "punta_manana": 18.0, "valle": 20.5, "punta_tarde": 24.7 }
     }
   ],
   "total": 1,
@@ -1287,9 +1288,12 @@ Activa o bloquea la cuenta de un usuario. Al bloquear, todas sus viviendas se oc
   "property": { ...PropertyResponse },
   "match_score": 87.4,
   "predicted_time_min": 18,
-  "time_saved_mins": 12
+  "time_saved_mins": 12,
+  "franjas": { "punta_manana": 18.0, "valle": 20.5, "punta_tarde": 24.7 }
 }
 ```
+
+> `franjas` es el mismo trayecto corregido a las 3 franjas horarias de referencia (punta_mañana 7am, valle 1pm, punta_tarde 6pm). Solo viene relleno cuando `preferred_transportation` es `"driving"` — es el único modo con datos de entrenamiento en las 3 franjas; en `"cycling"` y `"walking"` es `null`, para no extrapolar fuera de lo que el modelo vio en entrenamiento.
 
 ### `RouteResponse`
 ```json
