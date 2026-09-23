@@ -7,20 +7,31 @@ Generado por `scripts/benchmark_api_latency.py` contra el backend corriendo loca
 | Métrica | Valor |
 |---|---|
 | N | 30 |
-| Media | 0.208 s |
-| Mediana | 0.184 s |
-| P95 | 0.317 s |
-| Min / Max | 0.145 s / 0.487 s |
-| Desv. estándar | 0.069 s |
+| Media | 0.225 s |
+| Mediana | 0.227 s |
+| P95 | 0.301 s |
+| Min / Max | 0.152 s / 0.306 s |
+| Desv. estándar | 0.040 s |
+
+## `POST /recommend/workplaces/{id}/generate`
+
+| Métrica | Valor |
+|---|---|
+| N | 30 |
+| Media | 0.470 s |
+| Mediana | 0.457 s |
+| P95 | 0.561 s |
+| Min / Max | 0.405 s / 0.563 s |
+| Desv. estándar | 0.048 s |
 
 ## `GET /route`
 
 | Métrica | Valor |
 |---|---|
 | N | 30 |
-| Media | 0.005 s |
-| Mediana | 0.005 s |
+| Media | 0.007 s |
+| Mediana | 0.007 s |
 | P95 | 0.007 s |
-| Min / Max | 0.004 s / 0.011 s |
-| Desv. estándar | 0.001 s |
+| Min / Max | 0.006 s / 0.008 s |
+| Desv. estándar | 0.000 s |
 

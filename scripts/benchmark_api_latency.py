@@ -1,18 +1,43 @@
 """
 Benchmark de latencia real contra la API corriendo localmente. Mide el tiempo
-de respuesta de los dos endpoints que más carga imponen: la generación de
-recomendaciones (POST /recommend/guest, que filtra candidatas, llama a OSRM en
-lote y corrige con XGBoost) y el ruteo puntual (GET /route, un solo trayecto).
+de respuesta de los endpoints que más carga imponen: la generación de
+recomendaciones sin cuenta (POST /recommend/guest), la generación con cuenta
+autenticada (POST /recommend/workplaces/{id}/generate) y el ruteo puntual
+(GET /route, un solo trayecto).
+
+/recommend/guest y /recommend/workplaces/{id}/generate llaman a la misma
+función interna (generar_recomendacion() en recommendation_service.py) — el
+pipeline pesado (filtrar candidatas, llamar OSRM en lote, corregir con
+XGBoost) es idéntico. La diferencia de /generate es una consulta a BD para
+traer workplace/preferencias en vez de recibirlos en el body, y un INSERT al
+historial al final. Se miden ambos por separado para cuantificar esa
+sobrecarga extra frente al costo dominante de OSRM+XGBoost.
 
 Requiere que el backend ya esté corriendo (uvicorn app.main:app) y la base de
 datos sembrada. No inicia el servidor por sí mismo, para no mezclar el tiempo
 de arranque en frío con la latencia de request real.
 
+Para /generate se necesita un workplace + recommendation_preference reales
+con los mismos parámetros que RECOMMEND_PAYLOAD (mismo budget/modo/distancia,
+para que ambos endpoints filtren el mismo conjunto de candidatas) y un JWT
+válido para el usuario dueño de ese workplace:
+
+    INSERT INTO workplaces (user_id, work_address, work_lat, work_lon)
+    VALUES (<user_id>, '<fixture>', -12.0931, -77.0010);
+    INSERT INTO recommendation_preferences
+      (user_id, workplace_id, budget, preferred_transportation, max_distance_km)
+    VALUES (<user_id>, <workplace_id>, 3000, 'driving', 10.0);
+
+    python -c "from app.core.security import create_access_token; \
+        from datetime import timedelta; \
+        print(create_access_token({'sub': '<user_email>'}, timedelta(hours=2)))"
+
 Uso:
     uvicorn app.main:app --host 0.0.0.0 --port 8000 &
-    python scripts/benchmark_api_latency.py
+    AUTH_WORKPLACE_ID=<id> AUTH_TOKEN=<jwt> python scripts/benchmark_api_latency.py
 """
 
+import os
 import statistics as st
 import time
 
@@ -21,6 +46,9 @@ import httpx
 BASE_URL = "http://127.0.0.1:8000"
 N_REQUESTS = 30
 WARMUP = 2  # descartadas del cálculo, solo para no medir el primer conexionado en frío
+
+AUTH_WORKPLACE_ID = os.environ.get("AUTH_WORKPLACE_ID")
+AUTH_TOKEN = os.environ.get("AUTH_TOKEN")
 
 RECOMMEND_PAYLOAD = {
     "work_lat": -12.0931, "work_lon": -77.0010,
@@ -69,6 +97,16 @@ def main():
 
         t = medir("recommend_guest", lambda: client.post(f"{BASE_URL}/recommend/guest", json=RECOMMEND_PAYLOAD))
         resultados["POST /recommend/guest"] = reportar("POST /recommend/guest", t)
+
+        if AUTH_WORKPLACE_ID and AUTH_TOKEN:
+            headers = {"Authorization": f"Bearer {AUTH_TOKEN}"}
+            url = f"{BASE_URL}/recommend/workplaces/{AUTH_WORKPLACE_ID}/generate"
+            t = medir("recommend_generate_auth", lambda: client.post(url, headers=headers))
+            resultados["POST /recommend/workplaces/{id}/generate"] = reportar(
+                "POST /recommend/workplaces/{id}/generate", t
+            )
+        else:
+            print("\n(Omitiendo /recommend/workplaces/{id}/generate: faltan AUTH_WORKPLACE_ID/AUTH_TOKEN)")
 
         t = medir("route", lambda: client.get(f"{BASE_URL}/route", params=ROUTE_PARAMS))
         resultados["GET /route"] = reportar("GET /route", t)
