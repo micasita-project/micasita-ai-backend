@@ -2,20 +2,25 @@ from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.user import User
+from app.models.property import Property
+from app.models.favorite import Favorite
+from app.models.recommendation_preference import RecommendationPreference
+from app.models.otp_code import OtpCode
 from app.schemas.user import (
     UserCreate, UserResponse, Token,
     UserHomeUpdate, UserProfileUpdate,
     ForgotPasswordRequest, ResetPasswordRequest,
     VerifyEmailRequest, ResendVerificationRequest,
-    ChangePasswordRequest,
+    ChangePasswordRequest, DeleteAccountRequest,
 )
 from app.core.security import get_password_hash, verify_password, create_access_token, get_current_user
 from app.core.geo import is_within_lima, LIMA_LOCATION_ERROR
 from app.core.config import settings
 from app.core.email import email_service
+from app.core.privacy import PRIVACY_POLICY_VERSION
 from app.core.email_templates import get_otp_template
 from app.core.otp import password_reset_store, email_verify_store
-from datetime import timedelta
+from datetime import timedelta, datetime
 from fastapi.security import OAuth2PasswordRequestForm
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -36,7 +41,7 @@ def _send_verification_email(email: str, name: str | None):
     response_model=UserResponse,
     summary="Registrar usuario",
     response_description="Usuario creado; se enviará un OTP al email para verificarlo",
-    responses={400: {"description": "El email ya está registrado"}},
+    responses={400: {"description": "El email ya está registrado o no se aceptó la política de privacidad"}},
 )
 def register_user(user: UserCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
@@ -49,7 +54,13 @@ def register_user(user: UserCreate, background_tasks: BackgroundTasks, db: Sessi
     se reemplaza (nueva contraseña, nuevo OTP) en vez de bloquear el intento:
     de lo contrario, no completar la verificación deja el correo inutilizable
     para siempre, sin forma de volver a intentarlo.
+
+    Exige `accepted_terms=true`: el consentimiento a la política de privacidad
+    se guarda con su fecha y versión.
     """
+    if not user.accepted_terms:
+        raise HTTPException(status_code=400, detail="Debes aceptar la Política de Privacidad para crear tu cuenta.")
+
     db_user = db.query(User).filter(User.email == user.email).first()
     if db_user:
         if db_user.email_verified:
@@ -57,6 +68,8 @@ def register_user(user: UserCreate, background_tasks: BackgroundTasks, db: Sessi
         db_user.hashed_password = get_password_hash(user.password)
         db_user.name = user.name
         db_user.last_name = user.last_name
+        db_user.consent_accepted_at = datetime.utcnow()
+        db_user.consent_version = PRIVACY_POLICY_VERSION
         db.commit()
         db.refresh(db_user)
         background_tasks.add_task(_send_verification_email, db_user.email, db_user.name)
@@ -70,6 +83,8 @@ def register_user(user: UserCreate, background_tasks: BackgroundTasks, db: Sessi
         name=user.name,
         last_name=user.last_name,
         email_verified=False,
+        consent_accepted_at=datetime.utcnow(),
+        consent_version=PRIVACY_POLICY_VERSION,
     )
     db.add(new_user)
     db.commit()
@@ -190,6 +205,61 @@ def change_password(
     current_user.hashed_password = get_password_hash(data.new_password)
     db.commit()
     return {"message": "Contraseña actualizada correctamente."}
+
+
+@router.post(
+    "/me/consent",
+    response_model=UserResponse,
+    summary="Aceptar la política de privacidad",
+    response_description="Consentimiento registrado con fecha y versión",
+)
+def accept_privacy_policy(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Registra el consentimiento de un usuario que aún no lo había dado (cuentas anteriores a la política)."""
+    current_user.consent_accepted_at = datetime.utcnow()
+    current_user.consent_version = PRIVACY_POLICY_VERSION
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.delete(
+    "/me",
+    summary="Eliminar cuenta y datos personales",
+    response_description="Cuenta eliminada",
+    responses={
+        400: {"description": "Contraseña incorrecta"},
+        403: {"description": "Las cuentas de administrador no se pueden eliminar"},
+    },
+)
+def delete_account(
+    data: DeleteAccountRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Elimina de forma permanente la cuenta del usuario autenticado y todos sus datos:
+    lugares de trabajo, preferencias, historial de recomendaciones, favoritos,
+    códigos OTP y las viviendas que haya publicado. Exige la contraseña actual.
+    """
+    if current_user.role == "admin":
+        raise HTTPException(status_code=403, detail="Las cuentas de administrador no se pueden eliminar desde la aplicación.")
+
+    if not verify_password(data.password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="La contraseña es incorrecta.")
+
+    user_id, email = current_user.id, current_user.email
+
+    own_property_ids = [pid for (pid,) in db.query(Property.id).filter(Property.publisher_id == user_id).all()]
+    if own_property_ids:
+        db.query(Favorite).filter(Favorite.property_id.in_(own_property_ids)).delete(synchronize_session=False)
+        db.query(Property).filter(Property.id.in_(own_property_ids)).delete(synchronize_session=False)
+    db.query(Favorite).filter(Favorite.user_id == user_id).delete(synchronize_session=False)
+    db.query(RecommendationPreference).filter(RecommendationPreference.user_id == user_id).delete(synchronize_session=False)
+    db.query(OtpCode).filter(OtpCode.email == email).delete(synchronize_session=False)
+
+    db.delete(current_user)  # borra workplaces e historial por cascade del ORM
+    db.commit()
+    return {"message": "Cuenta eliminada correctamente."}
 
 
 # ── Email verification ────────────────────────────────────────────────────────

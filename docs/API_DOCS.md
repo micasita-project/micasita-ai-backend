@@ -41,6 +41,7 @@ Registra un nuevo usuario en el sistema. El rol asignado por defecto es `user`.
 | `password`  | `string` | Sí        | Contraseña en texto plano (se hashea con bcrypt) |
 | `name`      | `string` | No        | Nombre                   |
 | `last_name` | `string` | No        | Apellido                 |
+| `accepted_terms` | `boolean` | Sí   | Debe ser `true`: acepta la Política de Privacidad. Se guardan la fecha y la versión del consentimiento |
 
 **Ejemplo de request:**
 ```json
@@ -48,7 +49,8 @@ Registra un nuevo usuario en el sistema. El rol asignado por defecto es `user`.
   "email": "usuario@ejemplo.com",
   "password": "mi_contraseña_segura",
   "name": "Juan",
-  "last_name": "Pérez"
+  "last_name": "Pérez",
+  "accepted_terms": true
 }
 ```
 
@@ -57,7 +59,7 @@ Registra un nuevo usuario en el sistema. El rol asignado por defecto es `user`.
 | Código | Descripción                                      |
 | ------ | ------------------------------------------------ |
 | `200`  | Usuario creado. Devuelve `UserResponse`          |
-| `400`  | El email ya está registrado                      |
+| `400`  | El email ya está registrado, o `accepted_terms` no es `true` |
 | `422`  | Error de validación (campo faltante o mal formato) |
 
 ---
@@ -117,9 +119,13 @@ Devuelve el perfil completo del usuario autenticado.
   "last_name": "Pérez",
   "home_lat": -12.0464,
   "home_lon": -77.0428,
-  "home_address": "Av. Arequipa 1234, Miraflores"
+  "home_address": "Av. Arequipa 1234, Miraflores",
+  "consent_accepted_at": "2026-09-28T15:20:00",
+  "consent_version": "1.0"
 }
 ```
+
+`consent_accepted_at` es `null` para las cuentas creadas antes de la política de privacidad; la app les pide aceptarla (véase `POST /auth/me/consent`).
 
 **Respuestas:**
 
@@ -191,6 +197,45 @@ Actualiza la ubicación de la vivienda actual del usuario. Esta coordenada se us
 | `400`  | Coordenadas fuera de Lima Metropolitana         |
 | `401`  | Token inválido o expirado                       |
 | `422`  | Error de validación                             |
+
+---
+
+### `POST /auth/me/consent`
+
+Registra que el usuario autenticado acepta la Política de Privacidad vigente (fecha y versión). Se usa con las cuentas anteriores a la política, que tienen `consent_accepted_at = null`.
+
+**Requiere autenticación:** Sí
+
+**Respuestas:**
+
+| Código | Descripción                                      |
+| ------ | ------------------------------------------------ |
+| `200`  | Consentimiento registrado. Devuelve `UserResponse` |
+| `401`  | Token inválido o expirado                        |
+
+---
+
+### `DELETE /auth/me`
+
+Elimina de forma permanente la cuenta del usuario autenticado y todos sus datos personales: lugares de trabajo, preferencias, historial de recomendaciones, favoritos, códigos OTP y las viviendas que haya publicado (junto con los favoritos que otros usuarios tuvieran sobre ellas). Exige la contraseña actual. Las cuentas de administrador no se pueden eliminar por este endpoint.
+
+**Requiere autenticación:** Sí
+
+**Request Body** (`application/json`):
+
+| Campo      | Tipo     | Requerido | Descripción                  |
+| ---------- | -------- | --------- | ---------------------------- |
+| `password` | `string` | Sí        | Contraseña actual del usuario |
+
+**Respuestas:**
+
+| Código | Descripción                                             |
+| ------ | ------------------------------------------------------- |
+| `200`  | Cuenta eliminada                                        |
+| `400`  | Contraseña incorrecta                                   |
+| `401`  | Token inválido o expirado                               |
+| `403`  | La cuenta es de administrador y no puede eliminarse     |
+| `422`  | Error de validación                                     |
 
 ---
 

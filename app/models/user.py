@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -20,4 +20,8 @@ class User(Base):
     home_lon = Column(Float, nullable=True)
     home_address = Column(String, nullable=True)
     
+    # Consentimiento a la política de privacidad (Ley N.° 29733)
+    consent_accepted_at = Column(DateTime, nullable=True)
+    consent_version = Column(String(20), nullable=True)
+
     workplaces = relationship("Workplace", back_populates="owner", cascade="all, delete-orphan")

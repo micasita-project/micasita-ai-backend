@@ -476,6 +476,7 @@ def generar_recomendacion(
         resultados.append({
             "property": prop,
             "predicted_time_min": round(tiempo),
+            "osrm_time_min": round(d["tiempo_osrm"]),
             "match_score": round(score, 1),
             "time_saved_mins": round(time_saved) if time_saved is not None else None,
             "franjas": {k: round(v, 1) for k, v in franjas.items()} if franjas else None,

@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
+from datetime import datetime
 
 # 1. Esquemas de Creación/Registro
 class UserCreate(BaseModel):
@@ -7,6 +8,7 @@ class UserCreate(BaseModel):
     password: str
     name: Optional[str] = None
     last_name: Optional[str] = None
+    accepted_terms: bool = False
 
 # 2. Respuesta que devuelve la API (Ocultando la contraseña)
 class UserResponse(BaseModel):
@@ -20,6 +22,8 @@ class UserResponse(BaseModel):
     home_lat: Optional[float] = None
     home_lon: Optional[float] = None
     home_address: Optional[str] = None
+    consent_accepted_at: Optional[datetime] = None
+    consent_version: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -65,3 +69,7 @@ class ResendVerificationRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str = Field(min_length=8)
+
+
+class DeleteAccountRequest(BaseModel):
+    password: str
