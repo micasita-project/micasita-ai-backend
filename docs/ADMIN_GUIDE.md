@@ -11,7 +11,7 @@ El administrador utiliza exactamente el mismo endpoint que un usuario normal. El
 ### `POST /auth/login`
 - **Headers:** `Content-Type: application/x-www-form-urlencoded`
 - **Body (Form Data):**
-  - `username` (string, requerido): Email del administrador (ej. `admin@micasita.ai`).
+  - `username` (string, requerido): Email del administrador (el definido en `SEED_ADMIN_EMAIL`).
   - `password` (string, requerido): Contraseña.
 - **Respuesta Exitosa (200 OK):**
   ```json

@@ -1,3 +1,6 @@
+import html
+
+
 def get_base_template(content: str):
     return f"""
     <!DOCTYPE html>
@@ -165,4 +168,25 @@ def get_property_status_template(user_name: str, property_title: str, status: st
             <p>Puedes editar la información de tu propiedad e intentarlo de nuevo.</p>
         """
     
+    return get_base_template(message)
+
+
+def get_pending_property_admin_template(
+    property_title: str,
+    publisher_name: str,
+    district: str,
+    price_text: str,
+    resubmitted: bool = False,
+):
+    title = "Vivienda editada, pendiente de revisión" if resubmitted else "Nueva vivienda pendiente de revisión"
+    detail = "Su autor la editó y volvió a quedar en revisión." if resubmitted else "Un usuario acaba de publicarla."
+    message = f"""
+        <h2>{title}</h2>
+        <p>{detail}</p>
+        <p><strong>Título:</strong> {html.escape(property_title)}</p>
+        <p><strong>Publicada por:</strong> {html.escape(publisher_name)}</p>
+        <p><strong>Distrito:</strong> {html.escape(district)}</p>
+        <p><strong>Precio:</strong> {html.escape(price_text)}</p>
+        <p>Entra a la sección de moderación de la app para aprobarla o rechazarla.</p>
+    """
     return get_base_template(message)

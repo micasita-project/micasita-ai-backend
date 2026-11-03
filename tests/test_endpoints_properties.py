@@ -11,6 +11,8 @@ Tests de endpoints de propiedades:
   DELETE /properties/{id}/favorite
 """
 
+from unittest.mock import patch
+
 from tests.conftest import make_property, make_user
 
 PROPERTY_PAYLOAD = {
@@ -151,6 +153,60 @@ class TestCreateProperty:
         assert resp.status_code == 400
         assert "Lima" in resp.json()["detail"]
         mock_db.add.assert_not_called()
+
+
+# ── Aviso a admins de viviendas pendientes ───────────────────────────────────
+
+class TestAdminNotification:
+    def _admins(self, mock_db, *emails):
+        mock_db.query.return_value.filter.return_value.all.return_value = [
+            make_user(id=100 + i, email=e, role="admin") for i, e in enumerate(emails)
+        ]
+
+    @patch("app.api.properties.email_service")
+    def test_crear_avisa_a_cada_admin(self, mock_email, client, mock_db):
+        self._admins(mock_db, "a1@test.com", "a2@test.com")
+        client.post("/properties/", json=PROPERTY_PAYLOAD)
+        enviados = [c.args[0] for c in mock_email.send_email.call_args_list]
+        assert sorted(enviados) == ["a1@test.com", "a2@test.com"]
+        assert "Nueva vivienda" in mock_email.send_email.call_args_list[0].args[1]
+
+    @patch("app.api.properties.email_service")
+    def test_crear_sin_admins_no_envia_correo(self, mock_email, client, mock_db):
+        self._admins(mock_db)
+        client.post("/properties/", json=PROPERTY_PAYLOAD)
+        mock_email.send_email.assert_not_called()
+
+    @patch("app.api.properties.email_service")
+    def test_crear_fuera_de_lima_no_envia_correo(self, mock_email, client, mock_db):
+        self._admins(mock_db, "a1@test.com")
+        client.post("/properties/", json={**PROPERTY_PAYLOAD, "latitude": -16.4, "longitude": -71.5})
+        mock_email.send_email.assert_not_called()
+
+    @patch("app.api.properties.email_service")
+    def test_titulo_con_html_se_escapa_en_el_correo(self, mock_email, client, mock_db):
+        self._admins(mock_db, "a1@test.com")
+        client.post("/properties/", json={**PROPERTY_PAYLOAD, "title": "<script>alert(1)</script>"})
+        cuerpo = mock_email.send_email.call_args.args[2]
+        assert "<script>" not in cuerpo
+        assert "&lt;script&gt;" in cuerpo
+
+    @patch("app.api.properties.email_service")
+    def test_edicion_del_dueno_avisa_a_los_admins(self, mock_email, client, mock_db, mock_user):
+        self._admins(mock_db, "a1@test.com")
+        prop = make_property(id=1, publisher_id=mock_user.id, status="approved")
+        mock_db.query.return_value.filter.return_value.first.return_value = prop
+        client.patch("/properties/1", json={"title": "Nuevo título"})
+        mock_email.send_email.assert_called_once()
+        assert "editada" in mock_email.send_email.call_args.args[1]
+
+    @patch("app.api.properties.email_service")
+    def test_edicion_de_un_admin_no_envia_correo(self, mock_email, admin_client, mock_db):
+        self._admins(mock_db, "a1@test.com")
+        prop = make_property(id=1, publisher_id=999, status="approved")
+        mock_db.query.return_value.filter.return_value.first.return_value = prop
+        admin_client.patch("/properties/1", json={"title": "Moderado"})
+        mock_email.send_email.assert_not_called()
 
 
 # ── PATCH /properties/{id} ───────────────────────────────────────────────────

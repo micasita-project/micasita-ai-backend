@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import cloudinary
@@ -10,6 +10,8 @@ from app.schemas.property import PropertyCreate, PropertyUpdate, PropertyRespons
 from app.core.security import get_current_user, get_current_user_optional
 from app.core.config import settings
 from app.core.geo import is_within_lima, LIMA_LOCATION_ERROR
+from app.core.email import email_service
+from app.core.email_templates import get_pending_property_admin_template
 from app.models.favorite import Favorite
 
 router = APIRouter(prefix="/properties", tags=["Properties (Viviendas)"])
@@ -20,6 +22,23 @@ cloudinary.config(
     api_secret=settings.CLOUDINARY_API_SECRET,
     secure=True,
 )
+
+
+def _send_to_admins(emails: List[str], subject: str, html_content: str):
+    for address in emails:
+        email_service.send_email(address, subject, html_content)
+
+
+def _notify_admins_pending(background_tasks: BackgroundTasks, db: Session, prop: Property, publisher: User, resubmitted: bool = False):
+    """Avisa por correo a los admins activos de que una vivienda espera revisión."""
+    admin_emails = [a.email for a in db.query(User).filter(User.role == "admin", User.is_active.is_(True)).all()]
+    if not admin_emails:
+        return
+    price_text = f"{prop.currency or ''} {prop.price:,.0f}".strip() if prop.price is not None else "No indicado"
+    publisher_name = " ".join(filter(None, [publisher.name, publisher.last_name])) or publisher.email
+    subject = "Vivienda editada pendiente de revisión — MiCasita" if resubmitted else "Nueva vivienda pendiente de revisión — MiCasita"
+    html_content = get_pending_property_admin_template(prop.title, publisher_name, prop.district, price_text, resubmitted)
+    background_tasks.add_task(_send_to_admins, admin_emails, subject, html_content)
 
 
 def populate_favorites(properties, user_id, db: Session):
@@ -64,7 +83,7 @@ def upload_image(file: UploadFile = File(...), current_user: User = Depends(get_
     summary="Publicar vivienda",
     response_description="Vivienda creada en estado pendiente de revisión",
 )
-def create_property(property_data: PropertyCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def create_property(property_data: PropertyCreate, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """
     Crea una nueva publicación de vivienda. El estado inicial siempre es `pending`.
 
@@ -84,6 +103,7 @@ def create_property(property_data: PropertyCreate, current_user: User = Depends(
     db.add(new_property)
     db.commit()
     db.refresh(new_property)
+    _notify_admins_pending(background_tasks, db, new_property, current_user)
     return new_property
 
 
@@ -97,7 +117,7 @@ def create_property(property_data: PropertyCreate, current_user: User = Depends(
         404: {"description": "Vivienda no encontrada"},
     },
 )
-def update_property(property_id: int, property_data: PropertyUpdate, current_user: 
+def update_property(property_id: int, property_data: PropertyUpdate, background_tasks: BackgroundTasks, current_user: 
     User = Depends(get_current_user), db: Session = Depends(get_db)):
     """
     Actualiza los campos de una vivienda. Solo el dueño o un admin pueden editar.
@@ -133,11 +153,14 @@ def update_property(property_id: int, property_data: PropertyUpdate, current_use
         prop.location = f'SRID=4326;POINT({prop.longitude} {prop.latitude})'
 
     # Si el usuario NO es admin, forzamos que vuelva a revisión
-    if current_user.role != "admin":
+    resubmitted = current_user.role != "admin"
+    if resubmitted:
         prop.status = "pending"
 
     db.commit()
     db.refresh(prop)
+    if resubmitted:
+        _notify_admins_pending(background_tasks, db, prop, current_user, resubmitted=True)
     return prop
 
 

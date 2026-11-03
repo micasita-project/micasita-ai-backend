@@ -55,7 +55,7 @@ Ambos consumen además servicios externos: **Cloudinary** (imágenes), **SendGri
    $env:PYTHONPATH="."
    python scripts/seed_db.py
    ```
-   Esto crea el usuario administrador por defecto `admin@micasita.ai` (contraseña `password123`) y carga las propiedades de ejemplo.
+   Antes, define `SEED_ADMIN_EMAIL` (y opcionalmente `SEED_ADMIN_PASSWORD`) en el `.env`. Esto crea un único usuario administrador con ese correo y carga las propiedades de ejemplo. Si `SEED_ADMIN_PASSWORD` está vacío, la contraseña se genera al azar y se imprime una sola vez.
 
 7. **Iniciar la API:**
    ```bash
@@ -217,11 +217,11 @@ Dirigida al administrador del sistema y al rol **admin** de la plataforma.
   DATABASE_URL="<EXTERNAL_DATABASE_URL>" python scripts/migrate_otp_codes.py
   ```
 - **Almacén de OTP:** los códigos de verificación y recuperación se guardan en la tabla **`otp_codes`** (no en memoria), por lo que sobreviven reinicios del servidor y son consistentes entre múltiples instancias. La expiración se controla por el campo `expires_at` (15 min para reset de contraseña, 24 h para verificación de correo) y cada código es de un solo uso.
-- **Usuario administrador inicial:** `admin@micasita.ai` (creado por `scripts/seed_db.py`). Por seguridad, su contraseña debe cambiarse del valor por defecto en producción.
+- **Usuario administrador inicial:** el correo definido en `SEED_ADMIN_EMAIL` (creado por `scripts/seed_db.py`). Usa una contraseña propia y fuerte en producción. Los demás administradores se crean registrando la cuenta desde la app y cambiando su rol con `UPDATE users SET role = 'admin' WHERE email = '...'`.
 
 ### 4. Panel de Administración (rol `admin`)
 El usuario con rol `admin` (a través de la propia app móvil) puede:
-- **Moderar propiedades:** aprobar o rechazar publicaciones (con motivo de rechazo). Cada acción dispara un correo automático al publicador vía SendGrid.
+- **Moderar propiedades:** aprobar o rechazar publicaciones (con motivo de rechazo). Cada acción dispara un correo automático al publicador vía SendGrid. Cuando se publica una vivienda o un usuario edita una ya aprobada, todos los administradores activos reciben un correo de aviso para revisarla.
 - **Gestionar usuarios:** activar/bloquear cuentas (`is_active`); las cuentas bloqueadas no pueden iniciar sesión.
 
 ### 5. Respaldo (Backup)

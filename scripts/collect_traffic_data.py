@@ -327,7 +327,22 @@ def cargar_viviendas(path, muestra, semilla):
     return ubicaciones
 
 
-def construir_plan(ubicaciones, centros, modos, franjas, fecha_ref=None):
+def fecha_del_dia(dia, hora, fecha_ref=None):
+    """
+    Fecha de salida para el día de la semana `dia` (0=lunes ... 6=domingo).
+
+    Con `fecha_ref` se usa la semana de esa fecha, para que todo el dataset
+    quede en la misma semana de referencia. Sin ella, la próxima ocurrencia
+    de ese día con al menos 3 días de anticipación.
+    """
+    if fecha_ref:
+        base = datetime.strptime(fecha_ref, "%Y-%m-%d")
+        d = base - timedelta(days=base.weekday()) + timedelta(days=dia)
+        return d.replace(hour=hora, minute=0, second=0, microsecond=0)
+    return proximo_dia_habil(hora, dia_objetivo=dia)
+
+
+def construir_plan(ubicaciones, centros, modos, franjas, fecha_ref=None, dias=(1,)):
     """
     Una tarea por (origen, destino, modo, franja).
 
@@ -335,8 +350,14 @@ def construir_plan(ubicaciones, centros, modos, franjas, fecha_ref=None):
     catálogo: así el archivo de salida sigue siendo válido cuando se vuelva a
     correr el scraper y los IDs cambien.
     """
-    horas = {f: proximo_dia_habil(FRANJAS[f], fecha_ref=fecha_ref)
-             .strftime(f"%Y-%m-%dT%H:%M:%S{LIMA_UTC_OFFSET}") for f in franjas}
+    fmt = f"%Y-%m-%dT%H:%M:%S{LIMA_UTC_OFFSET}"
+    if tuple(dias) == (1,):
+        # Comportamiento original: solo martes, con `fecha_ref` como fecha exacta.
+        horas = {(1, f): proximo_dia_habil(FRANJAS[f], fecha_ref=fecha_ref).strftime(fmt)
+                 for f in franjas}
+    else:
+        horas = {(dia, f): fecha_del_dia(dia, FRANJAS[f], fecha_ref).strftime(fmt)
+                 for dia in dias for f in franjas}
 
     plan = []
     for c in centros:
@@ -345,9 +366,13 @@ def construir_plan(ubicaciones, centros, modos, franjas, fecha_ref=None):
         for u in ubicaciones:
             p_centro = haversine(u["lat"], u["lon"], *LIMA_CENTER)
             for modo in modos:
+              for dia in dias:
                 for f in franjas:
+                    # Los martes conservan la clave original para poder reanudar
+                    # el dataset existente; los demás días añaden el sufijo `|d<n>`.
+                    sufijo = "" if dia == 1 else f"|d{dia}"
                     plan.append({
-                        "pair_key": f"{w_lat},{w_lon}|{u['lat']},{u['lon']}|{modo}|{f}",
+                        "pair_key": f"{w_lat},{w_lon}|{u['lat']},{u['lon']}|{modo}|{f}{sufijo}",
                         "workplace_id": c["id"], "workplace_nombre": c["nombre"],
                         "work_lat": w_lat, "work_lon": w_lon,
                         # representativo + todos los avisos en esa ubicación
@@ -355,8 +380,8 @@ def construir_plan(ubicaciones, centros, modos, franjas, fecha_ref=None):
                         "prop_ids": ";".join(u["ids"]),
                         "prop_lat": u["lat"], "prop_lon": u["lon"],
                         "prop_district": u["district"],
-                        "modo": modo, "franja": f, "depart_at": horas[f],
-                        "dia_semana": datetime.strptime(horas[f][:19], "%Y-%m-%dT%H:%M:%S").weekday(),
+                        "modo": modo, "franja": f, "depart_at": horas[(dia, f)],
+                        "dia_semana": datetime.strptime(horas[(dia, f)][:19], "%Y-%m-%dT%H:%M:%S").weekday(),
                         "hora": FRANJAS[f],
                         "work_dist_centro_km": round(w_centro, 3),
                         "prop_dist_centro_km": round(p_centro, 3),
@@ -395,6 +420,9 @@ def main():
     ap.add_argument("--modes", default="driving",
                     help="modos separados por coma: driving,cycling,walking")
     ap.add_argument("--franjas", default="punta_manana,valle,punta_tarde")
+    ap.add_argument("--dias", default="1",
+                    help="días de la semana separados por coma (0=lunes ... 6=domingo; "
+                         "por defecto solo martes)")
     ap.add_argument("--workplaces", help="JSON con centros de trabajo propios")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--rate", type=float, default=0.22,
@@ -413,6 +441,10 @@ def main():
         if f not in FRANJAS:
             sys.exit(f"franja desconocida: {f} (usa {', '.join(FRANJAS)})")
 
+    dias = tuple(int(d) for d in args.dias.split(",") if d.strip() != "")
+    if not dias or any(d < 0 or d > 6 for d in dias):
+        sys.exit("--dias debe contener números entre 0 (lunes) y 6 (domingo)")
+
     centros = CENTROS_TRABAJO
     if args.workplaces:
         with open(args.workplaces, encoding="utf-8") as fh:
@@ -426,7 +458,7 @@ def main():
     print("=" * 74)
 
     viviendas = cargar_viviendas(args.housing, args.properties or None, args.seed)
-    plan = construir_plan(viviendas, centros, modos, franjas, args.depart_date)
+    plan = construir_plan(viviendas, centros, modos, franjas, args.depart_date, dias)
     hechas = claves_ya_hechas(args.output)
     pendientes = [t for t in plan if t["pair_key"] not in hechas]
 
@@ -436,6 +468,7 @@ def main():
     print(f"  centros de trabajo : {len(centros)}")
     print(f"  modos              : {', '.join(modos)}")
     print(f"  franjas            : {', '.join(franjas)}")
+    print(f"  días (0=lun)       : {', '.join(str(d) for d in dias)}")
     print(f"  horas de salida    : {', '.join(horas_usadas)}")
     print()
     print(f"  trayectos del plan : {len(plan)}")

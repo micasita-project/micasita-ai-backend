@@ -67,7 +67,7 @@ Start-Service -Name "postgresql-x64-15" # O la versión instalada
 *(Nota: El proyecto está configurado para buscar un usuario `postgres` con contraseña `postgres` y una base de datos local llamada `micasita_db`).*
 
 ### 4. Poblar la Base de Datos (Seeding)
-Antes de iniciar la API, puedes cargar el usuario por defecto y los datos de las propiedades corriendo el script de inicialización:
+Antes de iniciar la API, define `SEED_ADMIN_EMAIL` (y opcionalmente `SEED_ADMIN_PASSWORD`) en el `.env` y carga el administrador y las propiedades corriendo el script de inicialización:
 
 **🍎 macOS / Linux:**
 ```bash
@@ -80,7 +80,7 @@ python scripts/seed_db.py
 $env:PYTHONPATH="."
 python scripts/seed_db.py
 ```
-*Esto creará el usuario `admin@micasita.ai` (password: `password123`) y cargará las propiedades desde el archivo JSON (omitiéndolo de forma segura si ya existen datos).*
+*Esto creará un único usuario administrador con el correo de `SEED_ADMIN_EMAIL` y cargará las propiedades desde el archivo JSON, ya aprobadas (omitiéndolo de forma segura si ya existen datos). Si `SEED_ADMIN_PASSWORD` está vacío, se genera una contraseña al azar y se imprime una sola vez en consola. Sin `SEED_ADMIN_EMAIL` no se crea nada.*
 
 ### 5. Iniciar la API
 Levanta el servidor local de desarrollo con recarga automática (Este comando es igual para todos los sistemas). Al usar `--host 0.0.0.0`, la API estará disponible para otros dispositivos en tu red local (muy útil si pruebas desde tu celular o un emulador):

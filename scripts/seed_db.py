@@ -10,9 +10,9 @@ from app.core.config import settings
 from app.core.database import SessionLocal, engine, Base
 from app.core.security import get_password_hash
 from app.models.user import User
-from app.models.workplace import Workplace
+from app.models.workplace import Workplace  # noqa: F401
 from app.models.property import Property
-from app.models.recommendation_preference import RecommendationPreference
+from app.models.recommendation_preference import RecommendationPreference  # noqa: F401
 from app.models.recommendation_history import RecommendationHistory
 from app.models.favorite import Favorite
 
@@ -38,16 +38,16 @@ def seed_database():
             print("Ya existen datos en la base de datos. Omitiendo proceso de seeding...")
             return
 
-        # 2. Crear usuario por defecto
+        # 2. Crear usuario admin
+        if not settings.SEED_ADMIN_EMAIL:
+            print("Define SEED_ADMIN_EMAIL en el entorno o en .env para crear el administrador.")
+            return
         admin_password = settings.SEED_ADMIN_PASSWORD or secrets.token_urlsafe(12)
-        print(f"Creando usuario por defecto ({settings.SEED_ADMIN_EMAIL})...")
+        print(f"Creando usuario administrador ({settings.SEED_ADMIN_EMAIL})...")
         default_user = User(
             email=settings.SEED_ADMIN_EMAIL,
             hashed_password=get_password_hash(admin_password),
             role="admin",
-            home_lat=settings.SEED_ADMIN_HOME_LAT,
-            home_lon=settings.SEED_ADMIN_HOME_LON,
-            home_address=settings.SEED_ADMIN_HOME_ADDRESS,
             is_active=True
         )
         db.add(default_user)
@@ -56,30 +56,7 @@ def seed_database():
         if not settings.SEED_ADMIN_PASSWORD:
             print(f"  Contraseña generada (no se repite, guárdala ahora): {admin_password}")
 
-        # 3. Crear lugar de trabajo por defecto
-        print("Creando lugar de trabajo asociado...")
-        workplace = Workplace(
-            user_id=default_user.id,
-            work_address=settings.SEED_WORKPLACE_ADDRESS,
-            work_lat=settings.SEED_WORKPLACE_LAT,
-            work_lon=settings.SEED_WORKPLACE_LON,
-        )
-        db.add(workplace)
-        db.commit()
-        db.refresh(workplace)
-        
-        # 3.1 Crear preferencias de recomendacion para el workplace
-        pref = RecommendationPreference(
-            user_id=default_user.id,
-            workplace_id=workplace.id,
-            budget=1500.0,
-            preferred_transportation="driving",
-            max_distance_km=10.0
-        )
-        db.add(pref)
-        db.commit()
-        
-        # 4. Cargar el JSON e insertar las propiedades en lotes
+        # 3. Cargar el JSON e insertar las propiedades en lotes
         print(f"Cargando dataset desde {JSON_PATH}...")
         with open(JSON_PATH, "r", encoding="utf-8") as f:
             properties_data = json.load(f)
