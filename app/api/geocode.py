@@ -61,7 +61,7 @@ def _photon_search(q: str, limit: int) -> list:
         resp = requests.get(
             f"{PHOTON_BASE_URL}/api/",
             params={"q": q, "limit": limit * 3, "lat": -12.05,
-                    "lon": -77.03, "bbox": "-77.3,-12.6,-76.6,-11.7"},
+                    "lon": -77.03},
             headers=HEADERS,
             timeout=8,
         )
@@ -94,10 +94,12 @@ def _fetch_search(q: str, limit: int) -> list:
     if key in _search_cache:
         return _search_cache[key]
 
+    # Priorizar Lima permite ofrecer una ciudad externa y rechazarla explícitamente
+    # al seleccionarla, en lugar de confundirla con calles homónimas de Lima.
     params = {
         "q": q, "format": "json", "addressdetails": 1,
         "limit": limit, "countrycodes": "pe",
-        "viewbox": "-77.2,-11.8,-76.7,-12.3", "bounded": 1,
+        "viewbox": "-77.2,-11.8,-76.7,-12.3", "bounded": 0,
     }
     resp = _nominatim_get(f"{NOMINATIM_BASE_URL}/search", params)
 
