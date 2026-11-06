@@ -98,6 +98,7 @@ def seed_database():
                 parking=item.get("parking"),
                 antiquity=item.get("antiquity"),
                 description=item.get("description"),
+                phone=item.get("phone"),
                 images=item.get("images") or [],
                 source_url=item.get("source_url"),
                 features=item.get("features") or [],
