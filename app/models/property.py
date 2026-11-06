@@ -32,7 +32,7 @@ class Property(Base):
     description = Column(Text, nullable=True)
     phone = Column(String, nullable=True)
 
-    # ARRAY es nativo de PostgreSQL, brillante para guardar listas de URLs de Cloudinary
+    # URLs HTTP de imágenes en Cloudinary o en el almacenamiento local.
     images = Column(ARRAY(String), default=[])
     source_url = Column(String, nullable=True)
 

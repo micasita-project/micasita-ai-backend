@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from typing import Literal
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Micasita AI Backend"
@@ -11,10 +12,13 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080 # 7 días de sesión
     
-    # Cloudinary
-    CLOUDINARY_CLOUD_NAME: str
-    CLOUDINARY_API_KEY: str
-    CLOUDINARY_API_SECRET: str
+    # Nuevas imágenes: Cloudinary por defecto; disco para desarrollo/E2E.
+    IMAGE_STORAGE: Literal["cloudinary", "local"] = "cloudinary"
+    LOCAL_MEDIA_DIR: str = "data/local/uploads"
+    LOCAL_MEDIA_BASE_URL: str = ""  # vacío: usar la URL del request
+    CLOUDINARY_CLOUD_NAME: str = ""
+    CLOUDINARY_API_KEY: str = ""
+    CLOUDINARY_API_SECRET: str = ""
 
     # SendGrid (email transaccional)
     SENDGRID_API_KEY: str

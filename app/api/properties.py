@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Request, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import cloudinary
@@ -13,6 +13,7 @@ from app.core.geo import is_within_lima, LIMA_LOCATION_ERROR
 from app.core.email import email_service
 from app.core.email_templates import get_pending_property_admin_template
 from app.models.favorite import Favorite
+from app.core.image_storage import save_property_image
 
 router = APIRouter(prefix="/properties", tags=["Properties (Viviendas)"])
 
@@ -58,21 +59,20 @@ def populate_favorites(properties, user_id, db: Session):
     "/upload_image",
     response_model=ImageUploadResponse,
     summary="Subir imagen de vivienda",
-    response_description="URL pública permanente de la imagen en Cloudinary",
+    response_description="URL de la imagen en el almacenamiento configurado",
     responses={
-        400: {"description": "Error al subir el archivo a Cloudinary"},
+        400: {"description": "Error al guardar la imagen"},
     },
 )
-def upload_image(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
+def upload_image(request: Request, file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
     """
-    Sube una imagen a Cloudinary y devuelve la URL pública segura.
+    Guarda una imagen según IMAGE_STORAGE y devuelve su URL.
 
     Usar este endpoint antes de crear una vivienda para obtener las URLs de las imágenes.
     """
     try:
         content = file.file.read()
-        result = cloudinary.uploader.upload(content, resource_type="image", folder="micasita")
-        return {"url": result["secure_url"]}
+        return {"url": save_property_image(content, request)}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error subiendo imagen: {str(e)}")
 

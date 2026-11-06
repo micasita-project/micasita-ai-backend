@@ -61,31 +61,15 @@ def _make_db(rows_no_radius=None, rows_with_radius=None):
 # ─── calcular_match_score: la función de utilidad, probada directamente ──────
 
 class TestCalcularMatchScore:
-    def test_acotado_entre_0_y_100_por_arriba(self):
-        # Tiempo cero, muy barato, área grande → el máximo teórico supera 100
-        score = calcular_match_score(tiempo_min=0, dist_km=0, precio_ratio=0.0, area_m2=100)
-        assert score <= 100
+    @pytest.mark.parametrize("tiempo, esperado", [(0, 100), (45, 50), (90, 100 / 3)])
+    def test_escala_fija(self, tiempo, esperado):
+        assert calcular_match_score(tiempo) == pytest.approx(esperado)
 
-    def test_acotado_entre_0_y_100_por_abajo(self):
-        # Tiempo altísimo, muy caro, área diminuta → el mínimo teórico es negativo
-        score = calcular_match_score(tiempo_min=500, dist_km=50, precio_ratio=10.0, area_m2=5)
-        assert score >= 0
+    def test_viajes_largos_siguen_diferenciandose(self):
+        assert 0 < calcular_match_score(180) < calcular_match_score(90) < 100
 
-    def test_mas_barato_puntua_mas_alto_a_igualdad_de_lo_demas(self):
-        barato = calcular_match_score(tiempo_min=20, dist_km=5, precio_ratio=0.5, area_m2=60)
-        caro = calcular_match_score(tiempo_min=20, dist_km=5, precio_ratio=1.5, area_m2=60)
-        assert barato > caro
-
-    def test_mas_cerca_en_tiempo_puntua_mas_alto_a_igualdad_de_lo_demas(self):
-        cerca = calcular_match_score(tiempo_min=10, dist_km=3, precio_ratio=0.8, area_m2=60)
-        lejos = calcular_match_score(tiempo_min=60, dist_km=3, precio_ratio=0.8, area_m2=60)
-        assert cerca > lejos
-
-    def test_es_determinista(self):
-        # A diferencia del viejo dataset_builder.py, no debe llevar ruido aleatorio
-        a = calcular_match_score(tiempo_min=25, dist_km=6, precio_ratio=0.9, area_m2=45)
-        b = calcular_match_score(tiempo_min=25, dist_km=6, precio_ratio=0.9, area_m2=45)
-        assert a == b
+    def test_tiempo_negativo_se_acota_a_100(self):
+        assert calcular_match_score(-1) == 100
 
 
 # ─── Casos de resultados vacíos ───────────────────────────────────────────────
@@ -106,7 +90,7 @@ class TestGenararRecomendacionSinResultados:
         assert "10 km" in result["message"]
 
     def test_todas_sobre_presupuesto_retorna_min_price(self):
-        # Propiedad a 3000, usuario con 1000 → sobre presupuesto (incluso con 15% tolerancia)
+        # Propiedad a 3000, usuario con 1000 → sobre presupuesto
         p = _make_property(1, price=3000.0)
         db = _make_db(rows_no_radius=[(p, 5.0)])
         result = generar_recomendacion(-12.046, -77.042, 1000, "driving", db)
@@ -114,36 +98,110 @@ class TestGenararRecomendacionSinResultados:
         assert result["min_price_in_area"] == pytest.approx(3000.0)
         assert "presupuesto" in result["message"]
 
-    def test_presupuesto_con_tolerancia_15_porciento(self):
-        # budget=1000, tolerancia=15% → límite=1150; propiedad a 1100 → entra
-        p = _make_property(1, price=1100.0)
-        with (
-            patch("time.sleep"),
-            patch("app.services.recommendation_service.predictor_travel_time") as mock_pred,
-            patch("app.services.recommendation_service.get_osrm_route", return_value=(3.0, 15.0)),
-        ):
-            # driving expande a 3 filas por candidata (una por franja horaria).
-            mock_pred.predict_minutes.return_value = [12.0, 12.0, 12.0]
-            db = _make_db(rows_no_radius=[(p, 3.0)])
-            result = generar_recomendacion(-12.046, -77.042, 1000, "driving", db)
-        assert result["total"] == 1
+    @pytest.mark.parametrize("precio, moneda, entra", [
+        (999.99, "PEN", True),
+        (1000.0, "PEN", True),
+        (1000.01, "PEN", False),
+        (1100.0, "PEN", False),
+        (250.0, "USD", True),
+        (250.01, "USD", False),
+    ])
+    @patch("app.services.recommendation_service.USD_TO_PEN", 4.0)
+    @patch("app.services.recommendation_service.predictor_travel_time")
+    @patch("app.services.recommendation_service.get_osrm_table")
+    def test_presupuesto_maximo_estricto(
+        self, mock_osrm_table, mock_pred, precio, moneda, entra
+    ):
+        p = _make_property(1, price=precio, currency=moneda)
+        mock_osrm_table.return_value = [(3.0, 15.0)]
+        mock_pred.predict_minutes.return_value = [12.0] * 3
+        db = _make_db(rows_no_radius=[(p, 3.0)])
+
+        result = generar_recomendacion(-12.046, -77.042, 1000, "driving", db)
+
+        assert result["total"] == int(entra)
+        if entra:
+            assert result["results"][0]["property"].id == p.id
+        else:
+            assert result["results"] == []
+            assert result["min_price_in_area"] == pytest.approx(
+                precio * (4.0 if moneda == "USD" else 1.0)
+            )
+            mock_osrm_table.assert_not_called()
+            mock_pred.predict_minutes.assert_not_called()
 
 
 # ─── Flujo normal con el modelo de tiempo mockeado ───────────────────────────
 
 class TestGenararRecomendacionFlujoNormal:
+    @pytest.mark.parametrize("tiempos, orden", [
+        ([15.0, 16.0], [1, 2]),  # El precio nunca compensa un minuto más.
+        ([15.1, 14.9], [2, 1]),  # Ambos muestran 15 min: gana el menor precio.
+    ])
+    @patch("app.services.recommendation_service.predictor_travel_time")
+    @patch("app.services.recommendation_service.get_osrm_table")
+    def test_precio_solo_desempata_minutos_mostrados(
+        self, mock_osrm_table, mock_pred, tiempos, orden
+    ):
+        mock_osrm_table.return_value = [(5.0, 20.0)] * 2
+        mock_pred.predict_minutes.return_value = [t for t in tiempos for _ in range(3)]
+        props = [_make_property(1, 1900.0), _make_property(2, 500.0)]
+        db = _make_db(rows_no_radius=[(p, 5.0) for p in props])
+
+        result = generar_recomendacion(-12.046, -77.042, 2000, "driving", db)
+
+        assert [r["property"].id for r in result["results"]] == orden
+        if orden == [2, 1]:
+            assert result["results"][0]["match_score"] == result["results"][1]["match_score"]
+
+    @patch("app.services.recommendation_service.predictor_travel_time")
+    @patch("app.services.recommendation_service.get_osrm_table")
+    def test_desempate_convierte_dolares_a_soles(self, mock_osrm_table, mock_pred):
+        mock_osrm_table.return_value = [(5.0, 20.0)] * 2
+        mock_pred.predict_minutes.return_value = [15.0] * 6
+        props = [
+            _make_property(1, 500.0, currency="USD"),
+            _make_property(2, 1000.0, currency="PEN"),
+        ]
+        db = _make_db(rows_no_radius=[(p, 5.0) for p in props])
+
+        result = generar_recomendacion(-12.046, -77.042, 3000, "driving", db)
+
+        assert [r["property"].id for r in result["results"]] == [2, 1]
+
+    @patch("app.services.recommendation_service.predictor_travel_time")
+    @patch("app.services.recommendation_service.get_osrm_table")
+    def test_area_y_distancia_no_cambian_puntaje_a_igual_tiempo_y_precio(
+        self, mock_osrm_table, mock_pred
+    ):
+        mock_osrm_table.return_value = [(1.0, 20.0), (20.0, 20.0)]
+        mock_pred.predict_minutes.return_value = [20.0] * 6
+        props = [
+            _make_property(1, 1600.0, area=100.0),
+            _make_property(2, 1600.0, area=10.0),
+        ]
+        props[0].bedrooms = 4
+        props[1].bedrooms = 1
+        db = _make_db(rows_no_radius=[(props[0], 1.0), (props[1], 20.0)])
+
+        result = generar_recomendacion(-12.046, -77.042, 2000, "driving", db)
+
+        assert result["total"] == 2
+        assert [r["match_score"] for r in result["results"]] == [69.2, 69.2]
+
     @patch("time.sleep")
     @patch("app.services.recommendation_service.predictor_travel_time")
     @patch("app.services.recommendation_service.get_osrm_table")
     def test_mas_barata_rankea_primero_a_igual_tiempo(
         self, mock_osrm_table, mock_pred, mock_sleep
     ):
-        # Mismo tiempo corregido y misma distancia para las tres: la única
-        # diferencia real es el precio. Si el orden no sigue el precio, algo
+        # Mismo tiempo corregido para las tres; área y distancia favorecen
+        # a la más cara, pero solo el precio debe decidir el orden.
+        # Si el orden no sigue el precio, algo
         # rompió la orquestación entre generar_recomendacion y
         # calcular_match_score (no la fórmula en sí, que ya se prueba aparte).
         # get_osrm_table devuelve una fila por candidata, en el mismo orden.
-        mock_osrm_table.return_value = [(5.0, 20.0), (5.0, 20.0), (5.0, 20.0)]
+        mock_osrm_table.return_value = [(5.0, 20.0), (20.0, 20.0), (1.0, 20.0)]
         # predict_minutes se llama UNA vez con el lote completo. Para driving,
         # cada candidata se expande a 3 filas (una por franja horaria), así que
         # el mock necesita 3 candidatas x 3 franjas = 9 valores, todos iguales
@@ -151,9 +209,9 @@ class TestGenararRecomendacionFlujoNormal:
         mock_pred.predict_minutes.return_value = [15.0] * 9
 
         props = [
-            _make_property(1, 1200.0),   # precio_ratio 0.60
-            _make_property(2, 1000.0, lat=-12.060, lon=-77.050),  # 0.50 — la más barata
-            _make_property(3, 1400.0, lat=-12.080, lon=-77.030),  # 0.70 — la más cara
+            _make_property(1, 1200.0),   # precio S/ 1200
+            _make_property(2, 1000.0, lat=-12.060, lon=-77.050, area=10.0),  # S/ 1000 — la más barata
+            _make_property(3, 1400.0, lat=-12.080, lon=-77.030, area=100.0),  # S/ 1400 — la más cara
         ]
         rows = [(p, 5.0) for p in props]
         db = _make_db(rows_no_radius=rows)
@@ -162,7 +220,7 @@ class TestGenararRecomendacionFlujoNormal:
 
         assert result["total"] == 3
         scores = [r["match_score"] for r in result["results"]]
-        assert scores == sorted(scores, reverse=True)
+        assert scores == [75.0, 75.0, 75.0]
         # La propiedad 2 (más barata) debe quedar primera; la 3 (más cara), última.
         ids_en_orden = [r["property"].id for r in result["results"]]
         assert ids_en_orden == [2, 1, 3]

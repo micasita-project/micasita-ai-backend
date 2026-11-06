@@ -1,4 +1,7 @@
 from fastapi import FastAPI
+from pathlib import Path
+from starlette.staticfiles import StaticFiles
+from app.core.config import settings
 from sqlalchemy import text
 from app.core.database import Base, engine
 from app.api import auth, properties, recommend, workplaces, geocode, recommendation_preferences, admin, route
@@ -27,6 +30,10 @@ app = FastAPI(
     description="Backend oficial con PostgreSQL, Autenticacion y Machine Learning para Micasita",
     version="1.0.0"
 )
+
+if settings.IMAGE_STORAGE == "local":
+    Path(settings.LOCAL_MEDIA_DIR).mkdir(parents=True, exist_ok=True)
+    app.mount("/media", StaticFiles(directory=settings.LOCAL_MEDIA_DIR), name="local-media")
 
 # Registramos los endpoints creados
 app.include_router(auth.router)

@@ -88,6 +88,51 @@ Levanta el servidor local de desarrollo con recarga automática (Este comando es
 uvicorn app.main:app --reload --reload-dir app --host 0.0.0.0
 ```
 ¡Listo! La API estará corriendo en tu máquina local (`http://127.0.0.1:8000`) y en la IP local de tu computadora para otros dispositivos.
+
+### Reconstruir la base local y preparar una copia E2E
+
+Para reemplazar `micasita_db` local por los datos actuales de `data/raw/housing.json`:
+
+```sh
+venv/bin/python scripts/local_database.py --rebuild-local
+```
+
+El comando respalda la base anterior en `data/local/backups/` antes de eliminarla,
+la crea de nuevo y ejecuta `scripts/seed_db.py`. Solo admite PostgreSQL en
+localhost y los nombres `micasita_db` y `micasita_e2e`; rechaza conexiones remotas.
+`SEED_ADMIN_EMAIL` debe estar configurado. A diferencia del seed normal, este
+comando reemplaza explícitamente la base local existente.
+
+Para copiarla sin cambiar la base de desarrollo:
+
+```sh
+venv/bin/python scripts/local_database.py --clone-e2e
+```
+
+La preparación de `micasita-mobile-app/e2e/db/reset_and_seed.py` realiza esa copia
+y agrega las cuentas y viviendas de prueba, conservando las viviendas del seed.
+Consultar el README de `e2e` de la app para ejecutarla y generar la referencia de recomendaciones.
+
+### Imágenes en desarrollo local
+
+Configurar en el `.env` local:
+
+```dotenv
+IMAGE_STORAGE=local
+LOCAL_MEDIA_DIR=data/local/uploads
+LOCAL_MEDIA_BASE_URL=
+```
+
+Las nuevas imágenes enviadas a `/properties/upload_image` se guardan en disco y
+se sirven en `/media/`. Con `LOCAL_MEDIA_BASE_URL` vacío, la URL usa el host de la
+petición, por ejemplo `10.0.2.2:8000` en Android o `localhost:8000` en iOS. Si hay
+un proxy, se puede indicar la URL completa del directorio, terminada en `/media`.
+Los archivos y los respaldos de `data/local/` se ignoran en Git.
+
+El seed conserva las URLs de las fotografías existentes; no sube ni descarga
+imágenes. Pueden seguir mostrándose desde Cloudinary sin usarlo para las subidas
+nuevas. `IMAGE_STORAGE=cloudinary` conserva el comportamiento de producción y es
+el valor predeterminado cuando no se configura la variable.
 ---
 
 ## 📂 Arquitectura y Capas del Proyecto
