@@ -5,11 +5,13 @@ Servicio de dominio de recomendaciones.
 Orquesta el pipeline: pre-filtro espacial PostGIS → ruteo OSRM por modo con
 Circuit Breaker (fallback Haversine) → corrección del tiempo con XGBoost (vía
 `ml_pipeline.predictor_travel_time`, entrenado contra tráfico real de TomTom)
-→ cálculo de `time_saved` y ranking por tiempo, con desempate por precio.
+→ cálculo de `time_saved` y ranking por `match_score`.
 
-`match_score` es un índice descriptivo del tiempo estimado, no un modelo de ML
-ni una probabilidad. El ranking prioriza los minutos mostrados y usa el precio
-en soles solo para desempatar. XGBoost predice el tiempo de viaje.
+`match_score` ya NO es un modelo de ML: es una función de utilidad explícita
+(cercanía + presupuesto + área) documentada más abajo. El modelo de ML predice
+el tiempo de viaje, que es lo único que de verdad hacía falta aprender —
+cercanía y presupuesto se pueden calcular con una fórmula, el tiempo con
+tráfico no.
 
 Consumido por `app/api/recommend.py` (capa de routers).
 """
@@ -158,6 +160,7 @@ def get_osrm_table(work_lat, work_lon, destinos, mode):
     ]
 
 
+BUDGET_TOLERANCE = 1.15  # Mostrar casas hasta un 15% sobre el presupuesto declarado
 USD_TO_PEN = settings.USD_TO_PEN
 
 
@@ -254,20 +257,51 @@ def corregir_tiempos_por_franja(fila_osrm: dict) -> dict[str, float] | None:
     return {nombre: minutos for (nombre, _), minutos in zip(franjas, corregidos)}
 
 
-# --- match_score: escala descriptiva del tiempo, no una utilidad multivariable ---
-TIEMPO_REFERENCIA_SCORE_MIN = 45.0
+# --- match_score: función de utilidad explícita, no un modelo de ML ---
+#
+# Combina cercanía (a partir del tiempo YA CORREGIDO por el modelo de tráfico),
+# ajuste al presupuesto y área. Los pesos y tramos son los mismos que usaba
+# scripts/dataset_builder.py para generar la etiqueta sintética del modelo
+# viejo — se conservan porque son una heurística de dominio razonable, pero
+# ahora se declaran como lo que son: una regla de negocio explícita, no algo
+# "aprendido". Sin ruido aleatorio: aquí el puntaje debe ser determinista.
+def calcular_match_score(tiempo_min: float, dist_km: float, precio_ratio: float,
+                         area_m2: float) -> float:
+    score = 40.0
 
+    # Tiempo de viaje — factor principal (hasta +45 pts)
+    if tiempo_min <= 45:
+        score += 45 * (1 - tiempo_min / 45)
+    else:
+        score -= min(20, ((tiempo_min - 45) / 15) * 10)
 
-def calcular_match_score(tiempo_min: float) -> float:
-    """Índice 0–100 del tiempo: 0 min → 100, 45 min → 50, 90 min → 33,3.
+    # Distancia — complementario al tiempo (hasta +3 pts)
+    if dist_km <= 2:
+        score += 3
+    elif dist_km <= 5:
+        score += 1
+    elif dist_km <= 15:
+        pass
+    else:
+        score -= 3
 
-    La referencia de 45 minutos es una convención de presentación fija, no
-    aprendida ni validada como satisfacción. No depende del resto de viviendas,
-    del precio, del área ni de la distancia. El orden se calcula por separado.
-    """
-    return 100.0 * TIEMPO_REFERENCIA_SCORE_MIN / (
-        TIEMPO_REFERENCIA_SCORE_MIN + max(0.0, tiempo_min)
-    )
+    # Presupuesto (hasta +20 pts)
+    if precio_ratio <= 1.0:
+        score += (1 - precio_ratio) * 20
+    else:
+        score -= min(35, (precio_ratio - 1) * 60)
+
+    # Área — ajuste menor (hasta +5 pts)
+    if area_m2 >= 40:
+        score += 5
+    elif area_m2 >= 25:
+        score += 3
+    elif area_m2 >= 15:
+        score += 1
+    elif 0 < area_m2 < 15:
+        score -= 2
+
+    return max(0.0, min(100.0, score))
 
 
 def generar_recomendacion(
@@ -295,6 +329,8 @@ def generar_recomendacion(
         except Exception:
             dist = haversine(user_home_lat, user_home_lon, work_lat, work_lon)
             current_commute_time = simulate_commute_time(dist, mode)
+
+    budget_limit = budget * BUDGET_TOLERANCE
 
     # PostGIS hace filtro de radio + distancia + orden en una sola consulta indexada (GIST).
     # ST_Distance sobre geography devuelve metros → lo convertimos a km.
@@ -326,7 +362,7 @@ def generar_recomendacion(
     for c, dist_km in casas_en_radio:
         if not c.price:
             continue
-        if _to_pen(c.price, c.currency) <= budget:
+        if _to_pen(c.price, c.currency) <= budget_limit:
             casas_candidatas.append((dist_km, c))
 
     if not casas_candidatas:
@@ -367,9 +403,13 @@ def generar_recomendacion(
             dist_km = straight_dist
             tiempo_osrm = simulate_commute_time(dist_km, mode)
 
+        precio_pen = _to_pen(c.price, c.currency)
+        precio_ratio = precio_pen / budget if budget > 0 else 1.0
+
         lista_casas.append({
             "prop": c, "dist_km": dist_km, "tiempo_osrm": tiempo_osrm,
-            "de_osrm": de_osrm,
+            "de_osrm": de_osrm, "precio_ratio": precio_ratio,
+            "area_m2": float(c.total_area_sqm),
         })
 
     # Corregir el tiempo con el modelo de tráfico — solo para las que sí vinieron
@@ -421,14 +461,13 @@ def generar_recomendacion(
     if user_id:
         fav_ids = set(row[0] for row in db.query(Favorite.property_id).filter(Favorite.user_id == user_id).all())
 
-    # El índice describe los mismos minutos enteros que ve el usuario.
-    # El ranking no depende del puntaje redondeado.
+    # match_score: función de utilidad explícita (ver calcular_match_score), no
+    # una inferencia de modelo. Se calcula con el tiempo YA corregido.
     resultados = []
     for d in lista_casas:
         tiempo = d["tiempo"]
         time_saved = current_commute_time - tiempo if current_commute_time is not None else None
-        minutos_mostrados = round(tiempo)
-        score = calcular_match_score(minutos_mostrados)
+        score = calcular_match_score(tiempo, d["dist_km"], d["precio_ratio"], d["area_m2"])
 
         prop = d["prop"]
         prop.is_favorite = prop.id in fav_ids
@@ -436,18 +475,14 @@ def generar_recomendacion(
         franjas = d.get("franjas")
         resultados.append({
             "property": prop,
-            "predicted_time_min": minutos_mostrados,
+            "predicted_time_min": round(tiempo),
             "osrm_time_min": round(d["tiempo_osrm"]),
             "match_score": round(score, 1),
             "time_saved_mins": round(time_saved) if time_saved is not None else None,
             "franjas": {k: round(v, 1) for k, v in franjas.items()} if franjas else None,
         })
 
-    # Desempate solo dentro del mismo minuto mostrado, usando una moneda común.
-    ordered = sorted(resultados, key=lambda x: (
-        x["predicted_time_min"],
-        _to_pen(x["property"].price, x["property"].currency),
-    ))
+    ordered = sorted(resultados, key=lambda x: x["match_score"], reverse=True)
     return {"results": ordered, "total": len(ordered), "message": None, "min_price_in_area": None}
 
 
